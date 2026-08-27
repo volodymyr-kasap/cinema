@@ -27,31 +27,36 @@
 ## 2. Стек
 
 **Backend**
+
 - Node.js
 - TypeScript
 - NestJS
 
 **Databases**
+
 - PostgreSQL — транзакційні дані
 - Redis — locks, cache, rate limiting
 - ClickHouse — analytics/events
 
 **Messaging**
+
 - RabbitMQ — commands/jobs
 - Kafka — event streaming
 
 **Infrastructure**
+
 - Docker Compose
 - Prometheus
 - Grafana
 
 **Testing**
+
 - Jest
 - integration tests
 - k6 для load testing
 
-
 **Frontend**
+
 - Vite + React + TypeScript + Tailwind + TanStack Query + Zustand + React Hook Form/Zod + Vitest
 
 ## 3. Основні компоненти
@@ -108,6 +113,7 @@ Cinema
 Створюємо NestJS застосунок.
 
 **API**
+
 ```
 GET    /movies
 GET    /movies/:id
@@ -562,6 +568,7 @@ ClickHouse
 Створюємо dashboard:
 
 **Movie views**
+
 ```
 Avatar       124,500
 Batman        98,200
@@ -569,6 +576,7 @@ Dune          87,100
 ```
 
 **Conversion funnel**
+
 ```
 movie_viewed
       ↓
@@ -584,6 +592,7 @@ booking_confirmed
 ```
 
 **Metrics**
+
 - Views
 - Seat selections
 - Checkout starts
@@ -724,11 +733,13 @@ traceId = 7f8a...
 Використовуємо k6.
 
 **Scenario 1 — normal**
+
 ```
 100 RPS
 ```
 
 **Scenario 2 — stress**
+
 ```
 100
  ↓
@@ -740,6 +751,7 @@ traceId = 7f8a...
 ```
 
 **Scenario 3 — cinema premiere**
+
 ```
 10,000 concurrent users
 ```

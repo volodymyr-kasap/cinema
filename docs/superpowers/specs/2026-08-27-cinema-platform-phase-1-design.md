@@ -13,15 +13,15 @@ Kafka + ClickHouse + Prometheus/Grafana + k6. Одной спекой это н�
 Проект разбит на семь под-проектов, каждый со своей спекой, планом и циклом
 реализации:
 
-| # | Под-проект | Фазы `spec.md` | Что появляется |
-|---|---|---|---|
-| **1** | **Фундамент** | 1 | Монорепо, NestJS + Postgres, схема каталога, read-only API, React SPA до seat map, Docker, CI |
-| 2 | Бронирование и конкурентность | 2, 3 | Reservation/Booking, транзакции, state machine, конкурентный тест, UI выбора мест |
-| 3 | Redis, expiration, сравнение локов | 4, 5, 20, 25 | Redis-лок, TTL холдов, k6, эксперимент DB vs Redis |
-| 4 | Async: RabbitMQ, payment, идемпотентность | 6, 7, 8, 15, 16 | Воркеры, fake payment provider, Idempotency-Key, retry/DLQ, circuit breaker |
-| 5 | Kafka и domain events | 9 | Event streaming, consumer groups |
-| 6 | Аналитика | 10-14 | Frontend tracking, Analytics API, ClickHouse, batch ingestion, дашборд |
-| 7 | Observability и нагрузка | 17-19, 20 | Prometheus/Grafana, correlation ID, rate limiting, финальные прогоны k6 |
+| #     | Под-проект                                | Фазы `spec.md`  | Что появляется                                                                                |
+| ----- | ----------------------------------------- | --------------- | --------------------------------------------------------------------------------------------- |
+| **1** | **Фундамент**                             | 1               | Монорепо, NestJS + Postgres, схема каталога, read-only API, React SPA до seat map, Docker, CI |
+| 2     | Бронирование и конкурентность             | 2, 3            | Reservation/Booking, транзакции, state machine, конкурентный тест, UI выбора мест             |
+| 3     | Redis, expiration, сравнение локов        | 4, 5, 20, 25    | Redis-лок, TTL холдов, k6, эксперимент DB vs Redis                                            |
+| 4     | Async: RabbitMQ, payment, идемпотентность | 6, 7, 8, 15, 16 | Воркеры, fake payment provider, Idempotency-Key, retry/DLQ, circuit breaker                   |
+| 5     | Kafka и domain events                     | 9               | Event streaming, consumer groups                                                              |
+| 6     | Аналитика                                 | 10-14           | Frontend tracking, Analytics API, ClickHouse, batch ingestion, дашборд                        |
+| 7     | Observability и нагрузка                  | 17-19, 20       | Prometheus/Grafana, correlation ID, rate limiting, финальные прогоны k6                       |
 
 Отличия от порядка в `spec.md`: SPA втянут в под-проект 1 (иначе фазы 1-3 нечем
 показывать), k6 и rate limiting подтянуты к тем под-проектам, где они реально
@@ -43,13 +43,13 @@ check-then-act, тест на 100 000 конкурентных холдов. Д�
 
 ### Принятые решения верхнего уровня
 
-| Решение | Выбор |
-|---|---|
-| Бэкенд-фреймворк | NestJS с нуля, на Fastify-адаптере |
-| Доступ к БД | Drizzle |
-| Контракт фронт↔бэк | Общий пакет Zod-схем |
-| Zustand и React Hook Form | Отложены до под-проекта 2 |
-| Репозиторий | `git init` в корне, прототип — в историю |
+| Решение                   | Выбор                                    |
+| ------------------------- | ---------------------------------------- |
+| Бэкенд-фреймворк          | NestJS с нуля, на Fastify-адаптере       |
+| Доступ к БД               | Drizzle                                  |
+| Контракт фронт↔бэк        | Общий пакет Zod-схем                     |
+| Zustand и React Hook Form | Отложены до под-проекта 2                |
+| Репозиторий               | `git init` в корне, прототип — в историю |
 
 ---
 
@@ -114,12 +114,12 @@ Nest-, ни React-специфики внутри быть не должно: п
 
 ### Модули `apps/api`
 
-| Модуль | Ответственность |
-|---|---|
-| `ConfigModule` | Парсинг `process.env` через Zod, падение на старте при кривом конфиге |
-| `DrizzleModule` | Пул соединений, провайдер `DRIZZLE`, поддержка передачи транзакции |
-| `CatalogModule` | Movies, Cinemas, Halls, Showtimes, Seats — чтение |
-| `HealthModule` | `/health`, `/ready` |
+| Модуль          | Ответственность                                                       |
+| --------------- | --------------------------------------------------------------------- |
+| `ConfigModule`  | Парсинг `process.env` через Zod, падение на старте при кривом конфиге |
+| `DrizzleModule` | Пул соединений, провайдер `DRIZZLE`, поддержка передачи транзакции    |
+| `CatalogModule` | Movies, Cinemas, Halls, Showtimes, Seats — чтение                     |
+| `HealthModule`  | `/health`, `/ready`                                                   |
 
 `CatalogModule` намеренно один, а не четыре модуля по сущности: эти данные
 читаются всегда вместе (фильм → сеансы → зал → места), дробить их сейчас — это

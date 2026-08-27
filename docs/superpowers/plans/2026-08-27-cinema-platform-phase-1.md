@@ -14,37 +14,37 @@
 
 Exact versions — every `package.json` in this plan uses these and nothing looser.
 
-| Dependency | Version | Notes |
-| --- | --- | --- |
-| Node | `>=24` | Docker images use `node:24-alpine` |
-| PostgreSQL | `18` | Docker image `postgres:18-alpine`. Required: PG18 ships a built-in `uuidv7()` function, which the schema uses as the primary-key default |
-| typescript | `~6.0.3` | `@nestjs/cli@12` depends on `~6.0.2`; typescript-eslint supports `<6.1.0`. Do **not** install TypeScript 7 |
-| @nestjs/common, @nestjs/core, @nestjs/platform-fastify, @nestjs/testing | `^12.0.1` | |
-| @nestjs/cli | `^12.0.0` | dev only |
-| reflect-metadata | `^0.2.2` | required by Nest DI |
-| rxjs | `^7.8.2` | Nest peer |
-| drizzle-orm | `^0.45.2` | |
-| drizzle-kit | `^0.31.10` | dev only |
-| pg | `^8.23.0` | plus `@types/pg` `^8.11.10` |
-| zod | `^4.4.3` | Zod 4 API: `z.int()`, `z.uuid()`, `z.url()`, `z.iso.date()`, `z.iso.datetime()`, `z.prettifyError()`, `z.toJSONSchema()` |
-| pino | `^10.3.1` | plus `pino-pretty` `^13.1.3` (dev only) |
-| @fastify/swagger | `^9.8.1` | static mode |
-| @fastify/swagger-ui | `^6.1.1` | |
-| jest | `^30.4.2` | plus `ts-jest` `^29.4.12`, `@types/jest` `^30.0.0` |
-| testcontainers, @testcontainers/postgresql | `^12.1.0` | |
-| tsup | `^8.5.1` | builds `@cinema/contracts` dual CJS+ESM |
-| vite | `^8.2.2` | plus `@vitejs/plugin-react` `^6.1.0` |
-| react, react-dom | `^19.2.8` | |
-| react-router | `^8.3.0` | peer requires react `>=19.2.7` |
-| @tanstack/react-query | `^5.102.8` | |
-| tailwindcss, @tailwindcss/vite | `^4.3.3` | |
-| vitest | `^4.1.11` | plus `jsdom` `^30.0.1` |
-| @testing-library/react | `^16.3.3` | plus `@testing-library/user-event` `^14.6.1`, `@testing-library/jest-dom` `^6.6.4` |
-| msw | `^2.15.0` | |
-| @playwright/test | `^1.62.1` | |
-| eslint | `^10.9.1` | plus `typescript-eslint` `^8.68.0`, `eslint-plugin-drizzle` `^0.2.3`, `eslint-plugin-react-hooks` `^7.1.1` |
-| prettier | `^3.9.6` | plus `husky` `^9.1.7`, `lint-staged` `^17.4.1` for the pre-commit hook |
-| @types/node | `^24.13.3` | |
+| Dependency                                                              | Version    | Notes                                                                                                                                    |
+| ----------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Node                                                                    | `>=24`     | Docker images use `node:24-alpine`                                                                                                       |
+| PostgreSQL                                                              | `18`       | Docker image `postgres:18-alpine`. Required: PG18 ships a built-in `uuidv7()` function, which the schema uses as the primary-key default |
+| typescript                                                              | `~6.0.3`   | `@nestjs/cli@12` depends on `~6.0.2`; typescript-eslint supports `<6.1.0`. Do **not** install TypeScript 7                               |
+| @nestjs/common, @nestjs/core, @nestjs/platform-fastify, @nestjs/testing | `^12.0.1`  |                                                                                                                                          |
+| @nestjs/cli                                                             | `^12.0.0`  | dev only                                                                                                                                 |
+| reflect-metadata                                                        | `^0.2.2`   | required by Nest DI                                                                                                                      |
+| rxjs                                                                    | `^7.8.2`   | Nest peer                                                                                                                                |
+| drizzle-orm                                                             | `^0.45.2`  |                                                                                                                                          |
+| drizzle-kit                                                             | `^0.31.10` | dev only                                                                                                                                 |
+| pg                                                                      | `^8.23.0`  | plus `@types/pg` `^8.11.10`                                                                                                              |
+| zod                                                                     | `^4.4.3`   | Zod 4 API: `z.int()`, `z.uuid()`, `z.url()`, `z.iso.date()`, `z.iso.datetime()`, `z.prettifyError()`, `z.toJSONSchema()`                 |
+| pino                                                                    | `^10.3.1`  | plus `pino-pretty` `^13.1.3` (dev only)                                                                                                  |
+| @fastify/swagger                                                        | `^9.8.1`   | static mode                                                                                                                              |
+| @fastify/swagger-ui                                                     | `^6.1.1`   |                                                                                                                                          |
+| jest                                                                    | `^30.4.2`  | plus `ts-jest` `^29.4.12`, `@types/jest` `^30.0.0`                                                                                       |
+| testcontainers, @testcontainers/postgresql                              | `^12.1.0`  |                                                                                                                                          |
+| tsup                                                                    | `^8.5.1`   | builds `@cinema/contracts` dual CJS+ESM                                                                                                  |
+| vite                                                                    | `^8.2.2`   | plus `@vitejs/plugin-react` `^6.1.0`                                                                                                     |
+| react, react-dom                                                        | `^19.2.8`  |                                                                                                                                          |
+| react-router                                                            | `^8.3.0`   | peer requires react `>=19.2.7`                                                                                                           |
+| @tanstack/react-query                                                   | `^5.102.8` |                                                                                                                                          |
+| tailwindcss, @tailwindcss/vite                                          | `^4.3.3`   |                                                                                                                                          |
+| vitest                                                                  | `^4.1.11`  | plus `jsdom` `^30.0.1`                                                                                                                   |
+| @testing-library/react                                                  | `^16.3.3`  | plus `@testing-library/user-event` `^14.6.1`, `@testing-library/jest-dom` `^6.6.4`                                                       |
+| msw                                                                     | `^2.15.0`  |                                                                                                                                          |
+| @playwright/test                                                        | `^1.62.1`  |                                                                                                                                          |
+| eslint                                                                  | `^10.9.1`  | plus `typescript-eslint` `^8.68.0`, `eslint-plugin-drizzle` `^0.2.3`, `eslint-plugin-react-hooks` `^7.1.1`                               |
+| prettier                                                                | `^3.9.6`   | plus `husky` `^9.1.7`, `lint-staged` `^17.4.1` for the pre-commit hook                                                                   |
+| @types/node                                                             | `^24.13.3` |                                                                                                                                          |
 
 Rules that apply to every task:
 
@@ -118,11 +118,13 @@ cinema/
 ## Task 1: Monorepo skeleton, tooling, prototype removal
 
 **Files:**
+
 - Create: `package.json`, `tsconfig.base.json`, `eslint.config.js`, `.prettierrc.json`, `.env.example`
 - Modify: `.gitignore`
 - Delete: `cinema-ticket-booking-node/` (preserved in commit `569dfd5`)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: root scripts `npm run lint`, `npm run typecheck`, `npm run contracts:build`, `npm run build`, `npm run test`; `tsconfig.base.json` extended by every workspace.
 
@@ -205,7 +207,15 @@ import drizzle from 'eslint-plugin-drizzle';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**', 'apps/api/drizzle/**', '**/playwright-report/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      'apps/api/drizzle/**',
+      '**/playwright-report/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -303,11 +313,13 @@ commit 569dfd5 as the reference for the locking semantics."
 ## Task 2: `packages/contracts` — shared primitives
 
 **Files:**
+
 - Create: `packages/contracts/package.json`, `packages/contracts/tsconfig.json`, `packages/contracts/tsup.config.ts`, `packages/contracts/vitest.config.ts`
 - Create: `packages/contracts/src/common.ts`, `packages/contracts/src/index.ts`
 - Test: `packages/contracts/src/common.test.ts`
 
 **Interfaces:**
+
 - Consumes: `tsconfig.base.json` from Task 1.
 - Produces:
   - `paginationQuerySchema: z.ZodObject<{ cursor: ZodOptional<ZodString>, limit: ZodDefault<...> }>` → parses to `{ cursor?: string; limit: number }`
@@ -400,7 +412,12 @@ export default defineConfig({
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { idParamSchema, pageSchema, paginationQuerySchema, problemDetailsSchema } from './common.js';
+import {
+  idParamSchema,
+  pageSchema,
+  paginationQuerySchema,
+  problemDetailsSchema,
+} from './common.js';
 
 describe('paginationQuerySchema', () => {
   it('defaults limit to 20 when absent', () => {
@@ -451,7 +468,9 @@ describe('problemDetailsSchema', () => {
 
 describe('idParamSchema', () => {
   it('accepts a uuid v7 and rejects anything else', () => {
-    expect(idParamSchema.safeParse({ id: '019298a1-7c4e-7c3a-8f21-2f4a9c1d5b60' }).success).toBe(true);
+    expect(idParamSchema.safeParse({ id: '019298a1-7c4e-7c3a-8f21-2f4a9c1d5b60' }).success).toBe(
+      true,
+    );
     expect(idParamSchema.safeParse({ id: 'not-a-uuid' }).success).toBe(false);
   });
 });
@@ -529,6 +548,7 @@ git commit -m "feat(contracts): add shared pagination, page envelope and problem
 ## Task 3: `apps/api` skeleton — config, bootstrap, `/health`
 
 **Files:**
+
 - Create: `apps/api/package.json`, `apps/api/tsconfig.json`, `apps/api/tsconfig.build.json`, `apps/api/nest-cli.json`, `apps/api/jest.config.ts`
 - Create: `apps/api/src/config/env.ts`, `apps/api/src/config/config.service.ts`, `apps/api/src/config/config.module.ts`
 - Create: `apps/api/src/health/health.controller.ts`, `apps/api/src/health/health.module.ts`
@@ -536,6 +556,7 @@ git commit -m "feat(contracts): add shared pagination, page envelope and problem
 - Test: `apps/api/src/config/env.test.ts`, `apps/api/test/health.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `@cinema/contracts` (not yet used here, but declared as a dependency).
 - Produces:
   - `parseEnv(source: NodeJS.ProcessEnv): AppConfig` — throws `Error` with a readable message on invalid input
@@ -621,7 +642,15 @@ The `db:migrate` and `db:seed` scripts point at files created in Tasks 6 and 7; 
 ```json
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "test", "**/*.test.ts", "**/*.spec.ts", "jest.config.ts", "drizzle.config.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "jest.config.ts",
+    "drizzle.config.ts"
+  ]
 }
 ```
 
@@ -802,7 +831,9 @@ describe('GET /health', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL ??= 'postgres://cinema:cinema@localhost:5432/cinema';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter({ logger: false }));
+    app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter({ logger: false }),
+    );
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
@@ -922,11 +953,13 @@ git commit -m "feat(api): bootstrap NestJS on Fastify with validated config and 
 ## Task 4: Structured logging and request correlation
 
 **Files:**
+
 - Create: `apps/api/src/observability/request-context.ts`, `apps/api/src/observability/logger.ts`
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/src/observability/request-context.test.ts`, `apps/api/test/correlation.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `ConfigService` from Task 3.
 - Produces:
   - `requestContext: AsyncLocalStorage<{ requestId: string }>`
@@ -1028,7 +1061,9 @@ export function createLogger(config: AppConfig): Logger {
 /** Generates the correlation id, honouring an upstream `x-request-id`. */
 export function generateRequestId(request: { headers: Record<string, unknown> }): string {
   const header = request.headers['x-request-id'];
-  return typeof header === 'string' && header.length > 0 && header.length <= 200 ? header : randomUUID();
+  return typeof header === 'string' && header.length > 0 && header.length <= 200
+    ? header
+    : randomUUID();
 }
 
 /**
@@ -1048,7 +1083,11 @@ export function registerCorrelation(app: NestFastifyApplication): void {
 export class PinoLoggerService implements LoggerService {
   constructor(private readonly logger: Logger) {}
 
-  private write(level: 'info' | 'error' | 'warn' | 'debug' | 'trace', message: unknown, context?: unknown): void {
+  private write(
+    level: 'info' | 'error' | 'warn' | 'debug' | 'trace',
+    message: unknown,
+    context?: unknown,
+  ): void {
     this.logger[level]({ requestId: currentRequestId(), context }, String(message));
   }
 
@@ -1141,7 +1180,12 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { AppModule } from './app.module';
 import { parseEnv } from './config/env';
 import { ConfigService } from './config/config.service';
-import { PinoLoggerService, createLogger, generateRequestId, registerCorrelation } from './observability/logger';
+import {
+  PinoLoggerService,
+  createLogger,
+  generateRequestId,
+  registerCorrelation,
+} from './observability/logger';
 
 async function bootstrap(): Promise<void> {
   // Parsed twice on purpose: the logger must exist before the DI container does.
@@ -1196,12 +1240,14 @@ git commit -m "feat(api): add pino logging and AsyncLocalStorage request correla
 ## Task 5: Error handling — domain errors, Problem Details, Zod validation
 
 **Files:**
+
 - Create: `apps/api/src/http/errors.ts`, `apps/api/src/http/problem-details.filter.ts`, `apps/api/src/http/zod-validation.pipe.ts`, `apps/api/src/http/validated.decorator.ts`, `apps/api/src/http/response-validation.interceptor.ts`
 - Modify: `apps/api/src/main.ts`, `apps/api/src/app.module.ts`
 - Test: `apps/api/src/http/zod-validation.pipe.test.ts`, `apps/api/test/problem-details.e2e.spec.ts`
 - Test fixture: `apps/api/test/fixtures/broken.module.ts`
 
 **Interfaces:**
+
 - Consumes: `currentRequestId()` (Task 4), `ConfigService` (Task 3), `problemDetailsSchema` (Task 2).
 - Produces:
   - `abstract class DomainError extends Error` with `readonly status: number`, `readonly typeSlug: string`, `readonly title: string` — the filter renders `type` as `${PUBLIC_ERROR_BASE_URL}/${typeSlug}`
@@ -1411,7 +1457,8 @@ import type { z } from 'zod';
 export const RESPONSE_SCHEMA = 'response_schema';
 
 /** Declares the schema a handler promises to return. Read by the interceptor and by the OpenAPI builder. */
-export const Validated = (schema: z.ZodType): MethodDecorator => SetMetadata(RESPONSE_SCHEMA, schema);
+export const Validated = (schema: z.ZodType): MethodDecorator =>
+  SetMetadata(RESPONSE_SCHEMA, schema);
 ```
 
 `apps/api/src/http/response-validation.interceptor.ts`:
@@ -1500,7 +1547,9 @@ describe('Problem Details', () => {
 
   beforeAll(async () => {
     process.env.DATABASE_URL ??= 'postgres://cinema:cinema@localhost:5432/cinema';
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule, BrokenModule] }).compile();
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule, BrokenModule],
+    }).compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter({ logger: false, genReqId: generateRequestId }),
     );
@@ -1602,6 +1651,7 @@ git commit -m "feat(api): report every failure as RFC 9457 Problem Details and v
 ## Task 6: Drizzle, schema, migrations, `/ready`, Testcontainers harness
 
 **Files:**
+
 - Create: `apps/api/drizzle.config.ts`, `apps/api/src/db/schema.ts`, `apps/api/src/db/drizzle.module.ts`, `apps/api/src/db/migrate.ts`
 - Create: `apps/api/test/global-setup.ts`, `apps/api/test/global-teardown.ts`, `apps/api/test/harness.ts`
 - Modify: `apps/api/jest.config.ts`, `apps/api/src/app.module.ts`, `apps/api/src/health/health.controller.ts`, `apps/api/src/health/health.module.ts`
@@ -1609,6 +1659,7 @@ git commit -m "feat(api): report every failure as RFC 9457 Problem Details and v
 - Test: `apps/api/test/schema.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `ConfigService` (Task 3).
 - Produces:
   - `apps/api/src/db/schema.ts` exporting tables `users`, `movies`, `cinemas`, `halls`, `seatCategories`, `seats`, `showtimes`
@@ -1742,7 +1793,9 @@ export default defineConfig({
   dialect: 'postgresql',
   schema: './src/db/schema.ts',
   out: './drizzle',
-  dbCredentials: { url: process.env.DATABASE_URL ?? 'postgres://cinema:cinema@localhost:5432/cinema' },
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? 'postgres://cinema:cinema@localhost:5432/cinema',
+  },
 });
 ```
 
@@ -2020,7 +2073,15 @@ describe('database schema', () => {
     );
     const names = result.rows.map((row) => row.table_name);
 
-    for (const table of ['users', 'movies', 'cinemas', 'halls', 'seat_categories', 'seats', 'showtimes']) {
+    for (const table of [
+      'users',
+      'movies',
+      'cinemas',
+      'halls',
+      'seat_categories',
+      'seats',
+      'showtimes',
+    ]) {
       expect(names).toContain(table);
     }
   });
@@ -2081,7 +2142,9 @@ describe('database schema', () => {
         );
 
       await insertShowtime('2026-09-01T10:00:00Z', '2026-09-01T12:00:00Z');
-      await expect(insertShowtime('2026-09-01T12:00:00Z', '2026-09-01T14:00:00Z')).resolves.toBeDefined();
+      await expect(
+        insertShowtime('2026-09-01T12:00:00Z', '2026-09-01T14:00:00Z'),
+      ).resolves.toBeDefined();
     } finally {
       await client.query('ROLLBACK');
       client.release();
@@ -2103,12 +2166,12 @@ Expected on the first run before Step 4's SQL is applied: FAIL on the overlap te
 - [ ] **Step 12: Add a `/ready` assertion to `apps/api/test/health.e2e.spec.ts`**
 
 ```ts
-  it('reports readiness once the database answers', async () => {
-    const response = await app.inject({ method: 'GET', url: '/ready' });
+it('reports readiness once the database answers', async () => {
+  const response = await app.inject({ method: 'GET', url: '/ready' });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ready' });
-  });
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual({ status: 'ready' });
+});
 ```
 
 - [ ] **Step 13: Run the full api suite**
@@ -2134,10 +2197,12 @@ unique index on (hall_id, starts_at) cannot express."
 ## Task 7: Deterministic seed
 
 **Files:**
+
 - Create: `apps/api/src/db/seed-data.ts`, `apps/api/src/db/timezone.ts`, `apps/api/src/db/seed.ts`
 - Test: `apps/api/src/db/timezone.test.ts`, `apps/api/test/seed.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `schema` (Task 6).
 - Produces:
   - `zonedToUtc(year: number, month: number, day: number, hour: number, minute: number, timeZone: string): Date`
@@ -2151,15 +2216,21 @@ import { zonedToUtc } from './timezone';
 
 describe('zonedToUtc', () => {
   it('converts Kyiv summer time (UTC+3) to UTC', () => {
-    expect(zonedToUtc(2026, 9, 1, 10, 0, 'Europe/Kyiv').toISOString()).toBe('2026-09-01T07:00:00.000Z');
+    expect(zonedToUtc(2026, 9, 1, 10, 0, 'Europe/Kyiv').toISOString()).toBe(
+      '2026-09-01T07:00:00.000Z',
+    );
   });
 
   it('converts Warsaw summer time (UTC+2) to UTC', () => {
-    expect(zonedToUtc(2026, 9, 1, 10, 0, 'Europe/Warsaw').toISOString()).toBe('2026-09-01T08:00:00.000Z');
+    expect(zonedToUtc(2026, 9, 1, 10, 0, 'Europe/Warsaw').toISOString()).toBe(
+      '2026-09-01T08:00:00.000Z',
+    );
   });
 
   it('handles a winter date, where the offset differs', () => {
-    expect(zonedToUtc(2026, 12, 1, 10, 0, 'Europe/Kyiv').toISOString()).toBe('2026-12-01T08:00:00.000Z');
+    expect(zonedToUtc(2026, 12, 1, 10, 0, 'Europe/Kyiv').toISOString()).toBe(
+      '2026-12-01T08:00:00.000Z',
+    );
   });
 });
 ```
@@ -2372,7 +2443,10 @@ import { zonedToUtc } from './timezone';
 
 const INSERT_CHUNK = 1_000;
 
-async function insertInChunks<T>(rows: T[], insert: (chunk: T[]) => Promise<unknown>): Promise<void> {
+async function insertInChunks<T>(
+  rows: T[],
+  insert: (chunk: T[]) => Promise<unknown>,
+): Promise<void> {
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     await insert(rows.slice(i, i + INSERT_CHUNK));
   }
@@ -2475,7 +2549,11 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: databaseUrl });
 
   try {
-    await seedDatabase(drizzle(pool, { schema: { users, movies, cinemas, halls, seatCategories, seats, showtimes } }) as Database);
+    await seedDatabase(
+      drizzle(pool, {
+        schema: { users, movies, cinemas, halls, seatCategories, seats, showtimes },
+      }) as Database,
+    );
     console.log('seed complete');
   } finally {
     await pool.end();
@@ -2519,7 +2597,9 @@ describe('seedDatabase', () => {
   });
 
   const count = async (table: string): Promise<number> => {
-    const result = await db.execute<{ n: string }>(sql.raw(`SELECT count(*)::text AS n FROM ${table}`));
+    const result = await db.execute<{ n: string }>(
+      sql.raw(`SELECT count(*)::text AS n FROM ${table}`),
+    );
     return Number(result.rows[0]?.n ?? '0');
   };
 
@@ -2600,6 +2680,7 @@ git commit -m "feat(api): add a deterministic catalogue seed with a 1000-seat pr
 ## Task 8: Catalogue read API — movies and cinemas
 
 **Files:**
+
 - Create: `packages/contracts/src/movie.ts`, `packages/contracts/src/cinema.ts`
 - Modify: `packages/contracts/src/index.ts`
 - Create: `apps/api/src/catalog/cursor.ts`, `apps/api/src/catalog/catalog.service.ts`, `apps/api/src/catalog/catalog.controller.ts`, `apps/api/src/catalog/catalog.module.ts`
@@ -2607,6 +2688,7 @@ git commit -m "feat(api): add a deterministic catalogue seed with a 1000-seat pr
 - Test: `apps/api/src/catalog/cursor.test.ts`, `apps/api/test/catalog-movies.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `pageSchema`, `paginationQuerySchema`, `idParamSchema` (Task 2); `zodPipe`, `Validated`, `ResourceNotFoundError`, `InvalidCursorError` (Task 5); `DRIZZLE`, `Executor` (Task 6); seed (Task 7).
 - Produces:
   - `movieSchema` → `Movie = { id, title, description, durationMinutes, posterUrl, releaseDate, rating }`
@@ -2685,7 +2767,9 @@ describe('cursor codec', () => {
 
   it('rejects a cursor that is not one we issued', () => {
     expect(() => decodeCursor('not-base64!!')).toThrow(InvalidCursorError);
-    expect(() => decodeCursor(Buffer.from('{"a":1}').toString('base64url'))).toThrow(InvalidCursorError);
+    expect(() => decodeCursor(Buffer.from('{"a":1}').toString('base64url'))).toThrow(
+      InvalidCursorError,
+    );
   });
 });
 ```
@@ -2893,7 +2977,9 @@ export class CatalogController {
 
   @Get('cinemas')
   @Validated(cinemaPageSchema)
-  listCinemas(@Query(zodPipe(paginationQuerySchema)) query: PaginationQuery): Promise<Page<Cinema>> {
+  listCinemas(
+    @Query(zodPipe(paginationQuerySchema)) query: PaginationQuery,
+  ): Promise<Page<Cinema>> {
     return this.catalog.listCinemas(query);
   }
 
@@ -2913,7 +2999,11 @@ import { Module } from '@nestjs/common';
 import { CatalogController } from './catalog.controller';
 import { CatalogService } from './catalog.service';
 
-@Module({ controllers: [CatalogController], providers: [CatalogService], exports: [CatalogService] })
+@Module({
+  controllers: [CatalogController],
+  providers: [CatalogService],
+  exports: [CatalogService],
+})
 export class CatalogModule {}
 ```
 
@@ -2924,8 +3014,8 @@ Add `CatalogModule` to `AppModule`'s `imports`.
 Insert after `registerCorrelation(app);`:
 
 ```ts
-  app.setGlobalPrefix('api', { exclude: ['health', 'ready'] });
-  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+app.setGlobalPrefix('api', { exclude: ['health', 'ready'] });
+app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 ```
 
 and add `import { VersioningType } from '@nestjs/common';`. Health and readiness stay unversioned — orchestrators probe a fixed path.
@@ -2933,7 +3023,12 @@ and add `import { VersioningType } from '@nestjs/common';`. Health and readiness
 - [ ] **Step 9: Write the failing e2e test at `apps/api/test/catalog-movies.e2e.spec.ts`**
 
 ```ts
-import { cinemaPageSchema, moviePageSchema, movieSchema, problemDetailsSchema } from '@cinema/contracts';
+import {
+  cinemaPageSchema,
+  moviePageSchema,
+  movieSchema,
+  problemDetailsSchema,
+} from '@cinema/contracts';
 import { VersioningType } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
@@ -2996,7 +3091,9 @@ describe('catalogue: movies and cinemas', () => {
   });
 
   it('orders movies by title', async () => {
-    const page = moviePageSchema.parse((await app.inject({ method: 'GET', url: '/api/v1/movies?limit=100' })).json());
+    const page = moviePageSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/v1/movies?limit=100' })).json(),
+    );
     const titles = page.data.map((movie) => movie.title);
 
     expect(titles).toEqual([...titles].sort());
@@ -3004,7 +3101,9 @@ describe('catalogue: movies and cinemas', () => {
   });
 
   it('returns a single movie', async () => {
-    const page = moviePageSchema.parse((await app.inject({ method: 'GET', url: '/api/v1/movies?limit=1' })).json());
+    const page = moviePageSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/v1/movies?limit=1' })).json(),
+    );
     const id = page.data[0]?.id;
 
     const response = await app.inject({ method: 'GET', url: `/api/v1/movies/${id}` });
@@ -3044,7 +3143,9 @@ describe('catalogue: movies and cinemas', () => {
   });
 
   it('lists the three cinemas with their time zones', async () => {
-    const page = cinemaPageSchema.parse((await app.inject({ method: 'GET', url: '/api/v1/cinemas' })).json());
+    const page = cinemaPageSchema.parse(
+      (await app.inject({ method: 'GET', url: '/api/v1/cinemas' })).json(),
+    );
 
     expect(page.data).toHaveLength(3);
     expect(page.data.map((cinema) => cinema.city).sort()).toEqual(['Kyiv', 'Lviv', 'Warsaw']);
@@ -3083,12 +3184,14 @@ git commit -m "feat(api): serve movies and cinemas with keyset pagination behind
 ## Task 9: Catalogue read API — showtimes and the seat map
 
 **Files:**
+
 - Create: `packages/contracts/src/showtime.ts`, `packages/contracts/src/seat.ts`
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `apps/api/src/catalog/cursor.ts`, `apps/api/src/catalog/catalog.service.ts`, `apps/api/src/catalog/catalog.controller.ts`
 - Test: `apps/api/test/catalog-showtimes.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: everything from Task 8.
 - Produces:
   - `showtimeFormatSchema = z.enum(['TWO_D','THREE_D','IMAX'])`
@@ -3283,7 +3386,10 @@ describe('catalogue: showtimes and seats', () => {
 
     const page = showtimePageSchema.parse(
       (
-        await app.inject({ method: 'GET', url: `/api/v1/showtimes?movieId=${anyShowtime?.movieId}&limit=100` })
+        await app.inject({
+          method: 'GET',
+          url: `/api/v1/showtimes?movieId=${anyShowtime?.movieId}&limit=100`,
+        })
       ).json(),
     );
 
@@ -3298,7 +3404,10 @@ describe('catalogue: showtimes and seats', () => {
 
     const page = showtimePageSchema.parse(
       (
-        await app.inject({ method: 'GET', url: `/api/v1/showtimes?cinemaId=${anyShowtime?.cinemaId}&limit=100` })
+        await app.inject({
+          method: 'GET',
+          url: `/api/v1/showtimes?cinemaId=${anyShowtime?.cinemaId}&limit=100`,
+        })
       ).json(),
     );
 
@@ -3310,7 +3419,9 @@ describe('catalogue: showtimes and seats', () => {
     // local day. A UTC-based filter would put nothing wrong here, so the tell is
     // that every returned showtime belongs to the requested local date.
     const cinemas = showtimePageSchema.parse(
-      (await app.inject({ method: 'GET', url: '/api/v1/showtimes?date=2026-09-03&limit=100' })).json(),
+      (
+        await app.inject({ method: 'GET', url: '/api/v1/showtimes?date=2026-09-03&limit=100' })
+      ).json(),
     );
 
     expect(cinemas.data.length).toBeGreaterThan(0);
@@ -3351,7 +3462,9 @@ describe('catalogue: showtimes and seats', () => {
 
   it('prices each seat as the showtime base price plus its category surcharge', async () => {
     const id = await premiereShowtimeId();
-    const showtime = showtimeSchema.parse((await app.inject({ method: 'GET', url: `/api/v1/showtimes/${id}` })).json());
+    const showtime = showtimeSchema.parse(
+      (await app.inject({ method: 'GET', url: `/api/v1/showtimes/${id}` })).json(),
+    );
     const map = showtimeSeatsSchema.parse(
       (await app.inject({ method: 'GET', url: `/api/v1/showtimes/${id}/seats` })).json(),
     );
@@ -3381,9 +3494,13 @@ describe('catalogue: showtimes and seats', () => {
   });
 
   it('keeps the seat category codes in the database and in the contract in sync', async () => {
-    const result = await db.execute<{ code: string }>(sql`SELECT code FROM seat_categories ORDER BY code`);
+    const result = await db.execute<{ code: string }>(
+      sql`SELECT code FROM seat_categories ORDER BY code`,
+    );
 
-    expect(result.rows.map((row) => row.code).sort()).toEqual([...seatCategorySchema.options].sort());
+    expect(result.rows.map((row) => row.code).sort()).toEqual(
+      [...seatCategorySchema.options].sort(),
+    );
   });
 });
 ```
@@ -3563,11 +3680,13 @@ git commit -m "feat(api): serve showtimes with local-date filtering and the pric
 ## Task 10: OpenAPI generated from the contracts
 
 **Files:**
+
 - Create: `apps/api/src/openapi/routes.ts`, `apps/api/src/openapi/document.ts`, `apps/api/src/openapi/docs.controller.ts`, `apps/api/src/openapi/openapi.module.ts`
 - Modify: `apps/api/src/app.module.ts`, `apps/api/src/main.ts`
 - Test: `apps/api/src/openapi/document.test.ts`, `apps/api/test/openapi.e2e.spec.ts`
 
 **Interfaces:**
+
 - Consumes: every schema in `@cinema/contracts`.
 - Produces:
   - `type RouteDoc = { method: 'get'; path: string; operationId: string; summary: string; tags: string[]; params?: { name: string; schema: z.ZodType }[]; query?: z.ZodType; response: z.ZodType; errors: number[] }`
@@ -3757,7 +3876,10 @@ export interface OpenApiOperation {
   summary: string;
   tags: string[];
   parameters?: { name: string; in: 'path' | 'query'; required: boolean; schema: JsonSchema }[];
-  responses: Record<string, { description: string; content?: Record<string, { schema: JsonSchema }> }>;
+  responses: Record<
+    string,
+    { description: string; content?: Record<string, { schema: JsonSchema }> }
+  >;
 }
 
 export interface OpenApiDocument {
@@ -3886,11 +4008,11 @@ Add `OpenApiModule` to `AppModule`'s `imports`. With the global prefix, the rout
 Insert before `await app.listen(...)`:
 
 ```ts
-  await app.register(fastifySwagger, {
-    mode: 'static',
-    specification: { document: buildOpenApiDocument() as unknown as Record<string, unknown> },
-  });
-  await app.register(fastifySwaggerUi, { routePrefix: '/api/docs' });
+await app.register(fastifySwagger, {
+  mode: 'static',
+  specification: { document: buildOpenApiDocument() as unknown as Record<string, unknown> },
+});
+await app.register(fastifySwaggerUi, { routePrefix: '/api/docs' });
 ```
 
 with the imports:
@@ -3970,6 +4092,7 @@ git commit -m "feat(api): generate the OpenAPI document from the Zod contracts a
 ## Task 11: `apps/web` scaffold — Vite, Tailwind, router, Query, typed API client
 
 **Files:**
+
 - Create: `apps/web/package.json`, `apps/web/tsconfig.json`, `apps/web/vite.config.ts`, `apps/web/vitest.config.ts`, `apps/web/index.html`
 - Create: `apps/web/src/main.tsx`, `apps/web/src/index.css`
 - Create: `apps/web/src/app/providers.tsx`, `apps/web/src/app/router.tsx`, `apps/web/src/app/layout.tsx`, `apps/web/src/app/error-boundary.tsx`
@@ -3980,6 +4103,7 @@ git commit -m "feat(api): generate the OpenAPI document from the Zod contracts a
 - Test: `apps/web/src/shared/api/client.test.ts`, `apps/web/src/shared/lib/format.test.ts`
 
 **Interfaces:**
+
 - Consumes: every schema from `@cinema/contracts`.
 - Produces:
   - `class ApiError extends Error` with `readonly problem: ProblemDetails` and `get status(): number`
@@ -4155,7 +4279,9 @@ describe('apiFetch', () => {
   });
 
   it('still produces an ApiError when the server answers with something else entirely', async () => {
-    server.use(http.get('/api/v1/movies/:id', () => new HttpResponse('gateway down', { status: 502 })));
+    server.use(
+      http.get('/api/v1/movies/:id', () => new HttpResponse('gateway down', { status: 502 })),
+    );
 
     const error = await apiFetch('/api/v1/movies/1', movieSchema).catch((e: unknown) => e);
 
@@ -4164,7 +4290,11 @@ describe('apiFetch', () => {
   });
 
   it('fails loudly when the payload does not match the contract', async () => {
-    server.use(http.get('/api/v1/movies/:id', () => HttpResponse.json({ ...movie, durationMinutes: 'long' })));
+    server.use(
+      http.get('/api/v1/movies/:id', () =>
+        HttpResponse.json({ ...movie, durationMinutes: 'long' }),
+      ),
+    );
 
     await expect(apiFetch('/api/v1/movies/1', movieSchema)).rejects.toThrow(/contract/i);
   });
@@ -4264,7 +4394,13 @@ export const seatMapFixture: ShowtimeSeats = {
 ```ts
 import { http, HttpResponse } from 'msw';
 
-import { cinemaFixture, movieFixture, otherMovieFixture, seatMapFixture, showtimeFixture } from './fixtures';
+import {
+  cinemaFixture,
+  movieFixture,
+  otherMovieFixture,
+  seatMapFixture,
+  showtimeFixture,
+} from './fixtures';
 
 /** Default happy path. Individual tests override with `server.use(...)`. */
 export const handlers = [
@@ -4273,7 +4409,9 @@ export const handlers = [
   ),
   http.get('/api/v1/movies/:id', () => HttpResponse.json(movieFixture)),
   http.get('/api/v1/cinemas', () => HttpResponse.json({ data: [cinemaFixture], nextCursor: null })),
-  http.get('/api/v1/showtimes', () => HttpResponse.json({ data: [showtimeFixture], nextCursor: null })),
+  http.get('/api/v1/showtimes', () =>
+    HttpResponse.json({ data: [showtimeFixture], nextCursor: null }),
+  ),
   http.get('/api/v1/showtimes/:id', () => HttpResponse.json(showtimeFixture)),
   http.get('/api/v1/showtimes/:id/seats', () => HttpResponse.json(seatMapFixture)),
 ];
@@ -4325,7 +4463,11 @@ function fallbackProblem(status: number, path: string): ProblemDetails {
  * The cost is a parse per response; the benefit is that a contract mismatch
  * surfaces here, as a named error, instead of as `undefined` deep in a render.
  */
-export async function apiFetch<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  schema: z.ZodType<T>,
+  init?: RequestInit,
+): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: { accept: 'application/json', ...init?.headers },
@@ -4428,7 +4570,8 @@ export const catalogApi = {
   listShowtimes: (filters: ShowtimeFilters): Promise<Page<Showtime>> =>
     apiFetch(`/api/v1/showtimes${query({ ...filters, limit: 100 })}`, showtimePageSchema),
 
-  getShowtime: (id: string): Promise<Showtime> => apiFetch(`/api/v1/showtimes/${id}`, showtimeSchema),
+  getShowtime: (id: string): Promise<Showtime> =>
+    apiFetch(`/api/v1/showtimes/${id}`, showtimeSchema),
 
   getShowtimeSeats: (id: string): Promise<ShowtimeSeats> =>
     apiFetch(`/api/v1/showtimes/${id}/seats`, showtimeSeatsSchema),
@@ -4534,7 +4677,12 @@ export function Button({ className = '', ...props }: ButtonHTMLAttributes<HTMLBu
 ```tsx
 /** Keeps the layout it will be replaced by, so the page does not jump. */
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div aria-hidden className={`animate-pulse rounded-md bg-slate-200 dark:bg-slate-800 ${className}`} />;
+  return (
+    <div
+      aria-hidden
+      className={`animate-pulse rounded-md bg-slate-200 dark:bg-slate-800 ${className}`}
+    />
+  );
 }
 ```
 
@@ -4543,7 +4691,15 @@ export function Skeleton({ className = '' }: { className?: string }) {
 ```tsx
 import type { ReactNode } from 'react';
 
-export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
+export function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
       <p className="text-base font-medium">{title}</p>
@@ -4565,9 +4721,14 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
   const traceId = error instanceof ApiError ? error.problem.traceId : null;
 
   return (
-    <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-6 dark:border-red-800 dark:bg-red-950">
+    <div
+      role="alert"
+      className="rounded-lg border border-red-300 bg-red-50 p-6 dark:border-red-800 dark:bg-red-950"
+    >
       <p className="font-medium text-red-800 dark:text-red-200">{detail}</p>
-      {traceId ? <p className="mt-1 text-xs text-red-700 dark:text-red-300">Trace: {traceId}</p> : null}
+      {traceId ? (
+        <p className="mt-1 text-xs text-red-700 dark:text-red-300">Trace: {traceId}</p>
+      ) : null}
       {onRetry ? (
         <Button className="mt-4" onClick={onRetry}>
           Try again
@@ -4835,7 +4996,10 @@ import type { ReactElement } from 'react';
 
 import { Providers, createQueryClient } from '../app/providers';
 
-export function renderWithProviders(ui: ReactElement, { route = '/' }: { route?: string } = {}): RenderResult {
+export function renderWithProviders(
+  ui: ReactElement,
+  { route = '/' }: { route?: string } = {},
+): RenderResult {
   const client = createQueryClient();
   client.setDefaultOptions({ queries: { retry: false, staleTime: 0 } });
 
@@ -4869,11 +5033,13 @@ git commit -m "feat(web): scaffold the SPA with a contract-validating API client
 ## Task 12: Movie list screen
 
 **Files:**
+
 - Modify: `apps/web/src/features/movies/movie-list-page.tsx`
 - Create: `apps/web/src/features/movies/movie-card.tsx`
 - Test: `apps/web/src/features/movies/movie-list-page.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `catalogApi.listMovies`, `queryKeys.movies.list`, `renderWithProviders`, the UI primitives.
 - Produces: `MovieListPage`, `MovieCard` — the index route, listing movies with infinite scroll-by-button and linking to `/movies/:movieId`.
 
@@ -4925,7 +5091,9 @@ describe('MovieListPage', () => {
 
     expect(await screen.findByRole('link', { name: /Dune: Part Two/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Arrival/ })).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument(),
+    );
   });
 
   it('renders an empty state when the catalogue is empty', async () => {
@@ -4955,7 +5123,9 @@ describe('MovieListPage', () => {
 
     renderWithProviders(<MovieListPage />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The request could not be processed');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The request could not be processed',
+    );
     expect(screen.getByText(/trace-9/)).toBeInTheDocument();
   });
 });
@@ -5120,11 +5290,13 @@ git commit -m "feat(web): add the movie list screen with cursor-based infinite l
 ## Task 13: Movie detail with URL-driven showtime filters
 
 **Files:**
+
 - Modify: `apps/web/src/features/showtimes/movie-detail-page.tsx`
 - Create: `apps/web/src/features/showtimes/showtime-filters.tsx`, `apps/web/src/features/showtimes/showtime-list.tsx`
 - Test: `apps/web/src/features/showtimes/movie-detail-page.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `catalogApi.getMovie`, `catalogApi.listCinemas`, `catalogApi.listShowtimes`, `queryKeys`, `formatShowtimeTime`, `formatShowtimeDay`.
 - Produces:
   - `MovieDetailPage` — route `/movies/:movieId`
@@ -5193,7 +5365,9 @@ describe('MovieDetailPage', () => {
   });
 
   it('offers a reset when the filters exclude every showtime', async () => {
-    server.use(http.get('/api/v1/showtimes', () => HttpResponse.json({ data: [], nextCursor: null })));
+    server.use(
+      http.get('/api/v1/showtimes', () => HttpResponse.json({ data: [], nextCursor: null })),
+    );
 
     renderPage(`/movies/${movieFixture.id}?date=2026-12-25`);
 
@@ -5403,7 +5577,8 @@ export function MovieDetailPage() {
         <div>
           <h1 className="text-2xl font-semibold">{movie.data.title}</h1>
           <p className="mt-2 text-sm text-slate-500">
-            {movie.data.durationMinutes} min · {movie.data.rating.toFixed(1)} · {movie.data.releaseDate}
+            {movie.data.durationMinutes} min · {movie.data.rating.toFixed(1)} ·{' '}
+            {movie.data.releaseDate}
           </p>
           <p className="mt-4 max-w-prose">{movie.data.description}</p>
         </div>
@@ -5462,11 +5637,13 @@ git commit -m "feat(web): add the movie detail screen with showtime filters held
 ## Task 14: Accessible seat map
 
 **Files:**
+
 - Create: `apps/web/src/features/seat-map/build-rows.ts`, `apps/web/src/features/seat-map/seat-button.tsx`, `apps/web/src/features/seat-map/seat-grid.tsx`, `apps/web/src/shared/lib/use-roving-grid.ts`
 - Modify: `apps/web/src/features/seat-map/seat-map-page.tsx`
 - Test: `apps/web/src/features/seat-map/build-rows.test.ts`, `apps/web/src/features/seat-map/seat-map-page.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `catalogApi.getShowtime`, `catalogApi.getShowtimeSeats`, `queryKeys.showtimes.*`, `formatPrice`.
 - Produces:
   - `buildRows(seats: ShowtimeSeat[]): { label: string; seats: ShowtimeSeat[] }[]`
@@ -5607,9 +5784,7 @@ export function useRovingGrid(rowLengths: number[]) {
       const next = clamp(target);
       setActive(next);
 
-      document
-        .querySelector<HTMLElement>(`[data-grid-cell="${next.row}-${next.col}"]`)
-        ?.focus();
+      document.querySelector<HTMLElement>(`[data-grid-cell="${next.row}-${next.col}"]`)?.focus();
     },
     [active, clamp],
   );
@@ -5650,7 +5825,12 @@ export interface SeatButtonProps {
  * Memoised on purpose: the premiere hall renders 1000 of these, and selecting a
  * seat in sub-project 2 must repaint one of them, not the whole hall.
  */
-export const SeatButton = memo(function SeatButton({ seat, position, isActive, onFocus }: SeatButtonProps) {
+export const SeatButton = memo(function SeatButton({
+  seat,
+  position,
+  isActive,
+  onFocus,
+}: SeatButtonProps) {
   const taken = seat.status !== 'AVAILABLE';
 
   return (
@@ -5754,7 +5934,10 @@ describe('SeatMapPage', () => {
 
     const first = await screen.findByRole('button', { name: /Row A, seat 1/i });
     expect(first).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('button', { name: /Row A, seat 2/i })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('button', { name: /Row A, seat 2/i })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    );
 
     first.focus();
     await userEvent.keyboard('{ArrowRight}');
@@ -5858,7 +6041,8 @@ export function SeatMapPage() {
   });
 
   if (seats.isError) return <ErrorState error={seats.error} onRetry={() => void seats.refetch()} />;
-  if (showtime.isError) return <ErrorState error={showtime.error} onRetry={() => void showtime.refetch()} />;
+  if (showtime.isError)
+    return <ErrorState error={showtime.error} onRetry={() => void showtime.refetch()} />;
   if (seats.isPending || showtime.isPending) return <Skeleton className="h-96 w-full" />;
 
   const rows = buildRows(seats.data.seats);
@@ -5923,9 +6107,11 @@ git commit -m "feat(web): add the accessible seat map with roving tabindex and p
 ## Task 15: Docker images and Compose stack
 
 **Files:**
+
 - Create: `apps/api/Dockerfile`, `apps/api/.dockerignore`, `apps/web/Dockerfile`, `apps/web/.dockerignore`, `apps/web/nginx.conf`, `docker-compose.yml`
 
 **Interfaces:**
+
 - Consumes: the build scripts from every workspace.
 - Produces: `docker compose up` serving the SPA on `http://localhost:8080` and the API on `http://localhost:3000`, against a migrated and seeded PostgreSQL 18.
 
@@ -6091,7 +6277,13 @@ services:
       seed:
         condition: service_completed_successfully
     healthcheck:
-      test: ['CMD', 'node', '-e', "fetch('http://localhost:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -6158,9 +6350,11 @@ never race over DDL."
 ## Task 16: CI pipeline and the Playwright smoke test
 
 **Files:**
+
 - Create: `apps/web/playwright.config.ts`, `apps/web/e2e/smoke.spec.ts`, `.github/workflows/ci.yml`
 
 **Interfaces:**
+
 - Consumes: the compose stack (Task 15) and every test suite.
 - Produces: `npm run e2e -w @cinema/web` against a running stack, and a CI workflow with jobs `quality`, `test-api`, `test-web`, `e2e`.
 
@@ -6202,7 +6396,11 @@ test('walks from the catalogue to a seat map', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Showtimes' })).toBeVisible();
 
-  await page.getByRole('link').filter({ hasText: /^\d{2}:\d{2}/ }).first().click();
+  await page
+    .getByRole('link')
+    .filter({ hasText: /^\d{2}:\d{2}/ })
+    .first()
+    .click();
 
   const grid = page.getByRole('grid', { name: /seat map/i });
   await expect(grid).toBeVisible();
@@ -6338,10 +6536,12 @@ git commit -m "ci: add the GitHub Actions pipeline and a Playwright smoke test o
 ## Task 17: README and architecture decision records
 
 **Files:**
+
 - Create: `README.md`
 - Create: `docs/adr/0001-nestjs-instead-of-growing-the-fastify-prototype.md` … `docs/adr/0008-no-redis-in-phase-1.md`
 
 **Interfaces:**
+
 - Consumes: every decision made in Tasks 1–16.
 - Produces: the entry point a reader clones into, plus the record that satisfies the spec's requirement to justify each architectural decision.
 
@@ -6387,19 +6587,19 @@ history (commit 569dfd5) rather than in the working tree.
 
 Each is 15–25 lines with the same four headings. The decision and the rejected alternative for each:
 
-| File | Decision | Alternatives rejected |
-| --- | --- | --- |
-| `0002-drizzle-as-the-data-access-layer.md` | Drizzle | Prisma (`FOR UPDATE` only via `$queryRaw`, and locking is the point of sub-project 2); TypeORM (weak migrations, decorator magic); Kysely (no migrations of its own) |
-| `0003-shared-zod-contracts-instead-of-openapi-codegen.md` | One Zod package consumed by both sides; OpenAPI generated from it | DTOs plus `@nestjs/swagger` and a generated client (two schema descriptions, a codegen step in CI, and `@nestjs/swagger@12` pulls in `class-validator`) |
-| `0004-uuid-v7-primary-keys.md` | `uuidv7()` defaults, generated by PostgreSQL 18 | `bigserial` (leaks business volume through public ids); UUID v4 (random, destroys B-tree insert locality) |
-| `0005-keyset-pagination.md` | Opaque base64url cursor over the ordering key | `LIMIT/OFFSET` (skips and repeats rows when data is inserted between pages, degrades at large offsets) |
-| `0006-exclusion-constraint-for-showtime-overlap.md` | `EXCLUDE USING gist (hall_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&)` | Unique index on `(hall_id, starts_at)` (misses a showtime starting mid-way through another); application-level check (racy under concurrency) |
-| `0007-testcontainers-instead-of-mocked-repositories.md` | Integration tests against a real `postgres:18-alpine` | Mocked repositories (would not exercise the exclusion constraint, `uuidv7()`, or `AT TIME ZONE`); sqlite (a different engine with different semantics) |
-| `0008-no-redis-in-phase-1.md` | No Redis until sub-project 3 | Reusing the prototype's Redis lock immediately (sub-project 3's headline experiment compares database locking against Redis locking; without an honest, measured PostgreSQL implementation first, there is nothing to compare against) |
+| File                                                      | Decision                                                                           | Alternatives rejected                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0002-drizzle-as-the-data-access-layer.md`                | Drizzle                                                                            | Prisma (`FOR UPDATE` only via `$queryRaw`, and locking is the point of sub-project 2); TypeORM (weak migrations, decorator magic); Kysely (no migrations of its own)                                                                   |
+| `0003-shared-zod-contracts-instead-of-openapi-codegen.md` | One Zod package consumed by both sides; OpenAPI generated from it                  | DTOs plus `@nestjs/swagger` and a generated client (two schema descriptions, a codegen step in CI, and `@nestjs/swagger@12` pulls in `class-validator`)                                                                                |
+| `0004-uuid-v7-primary-keys.md`                            | `uuidv7()` defaults, generated by PostgreSQL 18                                    | `bigserial` (leaks business volume through public ids); UUID v4 (random, destroys B-tree insert locality)                                                                                                                              |
+| `0005-keyset-pagination.md`                               | Opaque base64url cursor over the ordering key                                      | `LIMIT/OFFSET` (skips and repeats rows when data is inserted between pages, degrades at large offsets)                                                                                                                                 |
+| `0006-exclusion-constraint-for-showtime-overlap.md`       | `EXCLUDE USING gist (hall_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&)` | Unique index on `(hall_id, starts_at)` (misses a showtime starting mid-way through another); application-level check (racy under concurrency)                                                                                          |
+| `0007-testcontainers-instead-of-mocked-repositories.md`   | Integration tests against a real `postgres:18-alpine`                              | Mocked repositories (would not exercise the exclusion constraint, `uuidv7()`, or `AT TIME ZONE`); sqlite (a different engine with different semantics)                                                                                 |
+| `0008-no-redis-in-phase-1.md`                             | No Redis until sub-project 3                                                       | Reusing the prototype's Redis lock immediately (sub-project 3's headline experiment compares database locking against Redis locking; without an honest, measured PostgreSQL implementation first, there is nothing to compare against) |
 
 - [ ] **Step 3: Write `README.md`**
 
-```markdown
+````markdown
 # Cinema Booking Platform
 
 Seat booking under contention, built as a study of the machinery real ticketing
@@ -6417,6 +6617,7 @@ phase and [`docs/adr/`](docs/adr/) for why each decision was made.
 ```bash
 docker compose up --build
 ```
+````
 
 - SPA: <http://localhost:8080>
 - API: <http://localhost:3000/api/v1/movies>
@@ -6437,11 +6638,11 @@ npm run dev:web    # http://localhost:5173, proxying /api
 
 ## Layout
 
-| Path | What it is |
-| --- | --- |
+| Path                 | What it is                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/contracts` | Zod schemas shared by both sides. The API validates with them, the SPA parses responses with them, and the OpenAPI document is generated from them |
-| `apps/api` | NestJS on the Fastify adapter, Drizzle over PostgreSQL 18 |
-| `apps/web` | Vite + React + Tailwind, TanStack Query for server state, URL for UI state |
+| `apps/api`           | NestJS on the Fastify adapter, Drizzle over PostgreSQL 18                                                                                          |
+| `apps/web`           | Vite + React + Tailwind, TanStack Query for server state, URL for UI state                                                                         |
 
 ## Testing
 
@@ -6471,7 +6672,8 @@ first principle is that no technology enters without one.
   stamped on every log line.
 - **The seat map is keyboard-navigable** — one tab stop, arrow keys across the
   hall — and never carries status by colour alone.
-```
+
+````
 
 - [ ] **Step 4: Verify the README's instructions actually work from a clean state**
 
@@ -6482,7 +6684,7 @@ sleep 30
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8080
 curl -s 'localhost:3000/api/v1/movies?limit=1' | head -c 120
 docker compose down
-```
+````
 
 Expected: `200` and a movie envelope. If either fails, fix the compose stack or the README before committing — a portfolio repository whose quickstart does not work is worse than no README.
 

@@ -1,0 +1,41 @@
+{
+  "name": "cinema-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "contracts:build": "npm run build -w @cinema/contracts",
+    "build": "npm run contracts:build && npm run build -w @cinema/api && npm run build -w @cinema/web",
+    "test": "npm run contracts:build && npm run test -w @cinema/contracts && npm run test -w @cinema/api && npm run test -w @cinema/web",
+    "typecheck": "npm run contracts:build && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev:api": "npm run dev -w @cinema/api",
+    "dev:web": "npm run dev -w @cinema/web",
+    "db:migrate": "npm run db:migrate -w @cinema/api",
+    "db:seed": "npm run db:seed -w @cinema/api",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,json,md,css,yml,yaml}": "prettier --write",
+    "*.{ts,tsx}": "eslint --fix"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "eslint": "^10.9.1",
+    "eslint-plugin-drizzle": "^0.2.3",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.4.1",
+    "prettier": "^3.9.6",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.68.0"
+  }
+}

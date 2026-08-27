@@ -7,4 +7,5 @@ coverage/
 .env.local
 .DS_Store
 .idea/
-.superpowers/
+playwright-report/
+test-results/
