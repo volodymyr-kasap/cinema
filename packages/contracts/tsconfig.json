@@ -5,6 +5,8 @@
     "moduleResolution": "Bundler",
     "outDir": "dist",
     "rootDir": "src",
+    // tsup's DTS worker synthesizes its own tsconfig with baseUrl, which TypeScript 6 rejects as deprecated (TS5101).
+    // This option suppresses the error. Removing it breaks `npm run contracts:build` at the DTS stage even though `tsc --noEmit` passes.
     "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*.ts"]
