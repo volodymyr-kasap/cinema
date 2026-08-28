@@ -40,6 +40,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         detail: exception.message,
         instance,
         traceId,
+        ...exception.extensions,
       };
     }
 
