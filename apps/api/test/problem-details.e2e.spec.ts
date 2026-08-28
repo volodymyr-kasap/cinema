@@ -12,7 +12,6 @@ describe('Problem Details', () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL ??= 'postgres://cinema:cinema@localhost:5432/cinema';
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule, BrokenModule],
     }).compile();

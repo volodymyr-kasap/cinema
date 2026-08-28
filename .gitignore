@@ -9,3 +9,4 @@ coverage/
 .idea/
 playwright-report/
 test-results/
+apps/api/test/.database-url

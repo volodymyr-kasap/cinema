@@ -7,7 +7,6 @@ describe('GET /health', () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL ??= 'postgres://cinema:cinema@localhost:5432/cinema';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter({ logger: false }),
@@ -25,5 +24,12 @@ describe('GET /health', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('reports readiness once the database answers', async () => {
+    const response = await app.inject({ method: 'GET', url: '/ready' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'ready' });
   });
 });

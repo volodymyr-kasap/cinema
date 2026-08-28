@@ -8,7 +8,6 @@ describe('request correlation', () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL ??= 'postgres://cinema:cinema@localhost:5432/cinema';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter({ logger: false, genReqId: generateRequestId }),
