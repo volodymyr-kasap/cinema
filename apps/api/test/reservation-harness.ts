@@ -25,6 +25,14 @@ export interface ReservationHarness {
   showtimeId: string;
   /** Twenty seats of that showtime's hall, ordered by row then number. */
   seatIds: string[];
+  /**
+   * A showtime that has already started, and one of its seats. The seeded
+   * catalogue is a fixed window of future dates, so a started showtime has to be
+   * made here — anchored to `now()` rather than a literal date, or this fixture
+   * would quietly stop being in the past as the calendar moves.
+   */
+  pastShowtimeId: string;
+  pastSeatId: string;
   hold(seats: string[], session?: string, showtime?: string): Promise<LightMyRequestResponse>;
   holdOne(seat: string, session?: string): Promise<Reservation>;
   act(
@@ -67,6 +75,25 @@ export async function startReservationHarness(): Promise<ReservationHarness> {
     ORDER BY se.row_label, se.seat_number LIMIT 20
   `);
 
+  const started = await db.execute<{ id: string }>(sql`
+    INSERT INTO showtimes (movie_id, hall_id, starts_at, ends_at, base_price_cents, language, format)
+    SELECT sh.movie_id, sh.hall_id, now() - interval '3 hours', now() - interval '1 hour',
+           sh.base_price_cents, sh.language, sh.format
+    FROM showtimes sh WHERE sh.id = ${showtimeId}
+    RETURNING id
+  `);
+  const pastShowtimeId = started.rows[0]?.id;
+  if (!pastShowtimeId) throw new Error('could not create a started showtime');
+
+  const pastSeat = await db.execute<{ id: string }>(sql`
+    SELECT se.id FROM seats se
+    JOIN showtimes sh ON sh.hall_id = se.hall_id
+    WHERE sh.id = ${pastShowtimeId}
+    ORDER BY se.row_label, se.seat_number LIMIT 1
+  `);
+  const pastSeatId = pastSeat.rows[0]?.id;
+  if (!pastSeatId) throw new Error('the started showtime has no seats');
+
   const hold: ReservationHarness['hold'] = (
     seatsToHold,
     session = randomUUID(),
@@ -84,6 +111,8 @@ export async function startReservationHarness(): Promise<ReservationHarness> {
     db,
     showtimeId,
     seatIds: seats.rows.map((row) => row.id),
+    pastShowtimeId,
+    pastSeatId,
     hold,
     holdOne: async (seat, session = randomUUID()) =>
       reservationSchema.parse((await hold([seat], session)).json()),
