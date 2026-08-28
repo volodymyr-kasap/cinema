@@ -30,3 +30,12 @@ export function decodeTextIdCursor(cursor: string): [string, string] {
   if (typeof text !== 'string' || typeof id !== 'string') throw new InvalidCursorError();
   return [text, id];
 }
+
+/** Narrows a decoded cursor to the `[iso timestamp, uuid]` shape showtimes order by. */
+export function decodeTimestampIdCursor(cursor: string): [string, string] {
+  const parts = decodeCursor(cursor);
+  const [timestamp, id] = parts;
+  if (typeof timestamp !== 'string' || typeof id !== 'string') throw new InvalidCursorError();
+  if (Number.isNaN(Date.parse(timestamp))) throw new InvalidCursorError();
+  return [timestamp, id];
+}

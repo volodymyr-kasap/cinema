@@ -1,12 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Cinema, Movie, PaginationQuery, Page } from '@cinema/contracts';
-import { asc, eq, sql } from 'drizzle-orm';
+import type {
+  Cinema,
+  Movie,
+  PaginationQuery,
+  Page,
+  Showtime,
+  ShowtimeQuery,
+  ShowtimeSeats,
+} from '@cinema/contracts';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 
 import { DRIZZLE, type Database, type Executor } from '../db/drizzle.module';
-import { cinemas, movies } from '../db/schema';
+import { cinemas, halls, movies, seatCategories, seats, showtimes } from '../db/schema';
 import { ResourceNotFoundError } from '../http/errors';
-import { decodeTextIdCursor, encodeCursor } from './cursor';
+import { decodeTextIdCursor, decodeTimestampIdCursor, encodeCursor } from './cursor';
 
 @Injectable()
 export class CatalogService {
@@ -84,6 +92,82 @@ export class CatalogService {
     if (!row) throw new ResourceNotFoundError('Cinema', id);
     return row;
   }
+
+  async listShowtimes(query: ShowtimeQuery, executor: Executor = this.db): Promise<Page<Showtime>> {
+    const filters = [];
+    if (query.movieId) filters.push(eq(showtimes.movieId, query.movieId));
+    if (query.cinemaId) filters.push(eq(cinemas.id, query.cinemaId));
+    if (query.date) {
+      // The calendar day is the cinema's, not UTC's. Doing this in SQL keeps one
+      // rule for every zone instead of a per-request conversion in the service.
+      filters.push(
+        sql`(${showtimes.startsAt} AT TIME ZONE ${cinemas.timezone})::date = ${query.date}::date`,
+      );
+    }
+    if (query.cursor) {
+      const [startsAt, id] = decodeTimestampIdCursor(query.cursor);
+      filters.push(
+        sql`(${showtimes.startsAt}, ${showtimes.id}) > (${startsAt}::timestamptz, ${id}::uuid)`,
+      );
+    }
+
+    const rows = await executor
+      .select(showtimeColumns)
+      .from(showtimes)
+      .innerJoin(halls, eq(halls.id, showtimes.hallId))
+      .innerJoin(cinemas, eq(cinemas.id, halls.cinemaId))
+      .where(filters.length > 0 ? and(...filters) : undefined)
+      .orderBy(asc(showtimes.startsAt), asc(showtimes.id))
+      .limit(query.limit + 1);
+
+    return toPage(rows.map(toShowtime), query.limit, (row) => encodeCursor([row.startsAt, row.id]));
+  }
+
+  async getShowtime(id: string, executor: Executor = this.db): Promise<Showtime> {
+    const [row] = await executor
+      .select(showtimeColumns)
+      .from(showtimes)
+      .innerJoin(halls, eq(halls.id, showtimes.hallId))
+      .innerJoin(cinemas, eq(cinemas.id, halls.cinemaId))
+      .where(eq(showtimes.id, id))
+      .limit(1);
+
+    if (!row) throw new ResourceNotFoundError('Showtime', id);
+    return toShowtime(row);
+  }
+
+  async getShowtimeSeats(id: string, executor: Executor = this.db): Promise<ShowtimeSeats> {
+    const showtime = await this.getShowtime(id, executor);
+
+    const rows = await executor
+      .select({
+        seatId: seats.id,
+        rowLabel: seats.rowLabel,
+        seatNumber: seats.seatNumber,
+        category: seats.categoryCode,
+        surchargeCents: seatCategories.surchargeCents,
+      })
+      .from(seats)
+      .innerJoin(seatCategories, eq(seatCategories.code, seats.categoryCode))
+      .where(eq(seats.hallId, showtime.hallId))
+      .orderBy(asc(seats.rowLabel), asc(seats.seatNumber));
+
+    return {
+      showtimeId: showtime.id,
+      hallId: showtime.hallId,
+      hallName: showtime.hallName,
+      seats: rows.map((row) => ({
+        seatId: row.seatId,
+        rowLabel: row.rowLabel,
+        seatNumber: row.seatNumber,
+        category: row.category as ShowtimeSeats['seats'][number]['category'],
+        priceCents: showtime.basePriceCents + row.surchargeCents,
+        // Phase 1 books nothing. Sub-project 2 replaces this constant with a
+        // left join onto reservations.
+        status: 'AVAILABLE' as const,
+      })),
+    };
+  }
 }
 
 /** Row-value comparison: `(title, id) > ($1, $2)` is exactly the keyset predicate. */
@@ -98,4 +182,35 @@ function toPage<T>(rows: T[], limit: number, cursorOf: (row: T) => string): Page
   const last = data.at(-1);
 
   return { data, nextCursor: hasMore && last ? cursorOf(last) : null };
+}
+
+const showtimeColumns = {
+  id: showtimes.id,
+  movieId: showtimes.movieId,
+  hallId: showtimes.hallId,
+  hallName: halls.name,
+  cinemaId: cinemas.id,
+  cinemaName: cinemas.name,
+  startsAt: showtimes.startsAt,
+  endsAt: showtimes.endsAt,
+  basePriceCents: showtimes.basePriceCents,
+  language: showtimes.language,
+  format: showtimes.format,
+};
+
+type ShowtimeRow = {
+  [K in keyof typeof showtimeColumns]: K extends 'startsAt' | 'endsAt'
+    ? Date
+    : K extends 'basePriceCents'
+      ? number
+      : string;
+};
+
+function toShowtime(row: ShowtimeRow): Showtime {
+  return {
+    ...row,
+    startsAt: row.startsAt.toISOString(),
+    endsAt: row.endsAt.toISOString(),
+    format: row.format as Showtime['format'],
+  };
 }

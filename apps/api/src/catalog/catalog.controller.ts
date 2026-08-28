@@ -6,11 +6,18 @@ import {
   moviePageSchema,
   movieSchema,
   paginationQuerySchema,
+  showtimePageSchema,
+  showtimeQuerySchema,
+  showtimeSchema,
+  showtimeSeatsSchema,
   type Cinema,
   type IdParam,
   type Movie,
   type Page,
   type PaginationQuery,
+  type Showtime,
+  type ShowtimeQuery,
+  type ShowtimeSeats,
 } from '@cinema/contracts';
 
 import { Validated } from '../http/validated.decorator';
@@ -45,5 +52,25 @@ export class CatalogController {
   @Validated(cinemaSchema)
   getCinema(@Param(zodPipe(idParamSchema)) params: IdParam): Promise<Cinema> {
     return this.catalog.getCinema(params.id);
+  }
+
+  @Get('showtimes')
+  @Validated(showtimePageSchema)
+  listShowtimes(
+    @Query(zodPipe(showtimeQuerySchema)) query: ShowtimeQuery,
+  ): Promise<Page<Showtime>> {
+    return this.catalog.listShowtimes(query);
+  }
+
+  @Get('showtimes/:id')
+  @Validated(showtimeSchema)
+  getShowtime(@Param(zodPipe(idParamSchema)) params: IdParam): Promise<Showtime> {
+    return this.catalog.getShowtime(params.id);
+  }
+
+  @Get('showtimes/:id/seats')
+  @Validated(showtimeSeatsSchema)
+  getShowtimeSeats(@Param(zodPipe(idParamSchema)) params: IdParam): Promise<ShowtimeSeats> {
+    return this.catalog.getShowtimeSeats(params.id);
   }
 }
