@@ -88,8 +88,9 @@ comparison of PostgreSQL against Redis worth running.
   so the index — not a service check — serialises the race, and the returned rows
   name the seats the caller lost.
 - **Holds expire lazily, with no scheduler.** A lapsed hold is released by the
-  next caller who wants those seats. There is no cron job, no worker and no
-  `setInterval` anywhere in the codebase.
+  next caller who wants those seats. The API runs no cron job, no worker and no
+  timer of any kind; the only interval in the repository is the one-second tick
+  that redraws the countdown in the browser.
 - **Overlapping showtimes are impossible by construction** — a GiST exclusion
   constraint over `tstzrange`, not an application check.
 - **Every failure is an RFC 9457 problem document** carrying the request's
