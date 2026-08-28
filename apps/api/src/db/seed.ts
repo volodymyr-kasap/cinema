@@ -36,7 +36,10 @@ async function insertInChunks<T>(
 /** Wipes and rebuilds the catalogue. Deterministic: same input, same rows, every time. */
 export async function seedDatabase(db: Database): Promise<void> {
   await db.execute(
-    sql`TRUNCATE TABLE showtimes, seats, halls, cinemas, movies, seat_categories, users RESTART IDENTITY CASCADE`,
+    // reservations and reservation_seats would be swept by CASCADE anyway,
+    // through their foreign key to showtimes. Naming them is the difference
+    // between a rule you can read and one you have to derive.
+    sql`TRUNCATE TABLE reservation_seats, reservations, showtimes, seats, halls, cinemas, movies, seat_categories, users RESTART IDENTITY CASCADE`,
   );
 
   await db.insert(seatCategories).values([...SEAT_CATEGORIES]);

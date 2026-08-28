@@ -10,6 +10,8 @@ const seat = (rowLabel: string, seatNumber: number): ShowtimeSeat => ({
   category: 'STANDARD',
   priceCents: 15_000,
   status: 'AVAILABLE',
+  // Task 9 replaces this constant with the real occupancy join.
+  heldByYou: false,
 });
 
 describe('buildRows', () => {

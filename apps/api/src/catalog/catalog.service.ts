@@ -8,11 +8,20 @@ import type {
   ShowtimeQuery,
   ShowtimeSeats,
 } from '@cinema/contracts';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 
 import { DRIZZLE, type Database, type Executor } from '../db/drizzle.module';
-import { cinemas, halls, movies, seatCategories, seats, showtimes } from '../db/schema';
+import {
+  cinemas,
+  halls,
+  movies,
+  reservationSeats,
+  reservations,
+  seatCategories,
+  seats,
+  showtimes,
+} from '../db/schema';
 import { ResourceNotFoundError } from '../http/errors';
 import { decodeTextIdCursor, decodeTimestampIdCursor, encodeCursor } from './cursor';
 
@@ -136,7 +145,11 @@ export class CatalogService {
     return toShowtime(row);
   }
 
-  async getShowtimeSeats(id: string, executor: Executor = this.db): Promise<ShowtimeSeats> {
+  async getShowtimeSeats(
+    id: string,
+    sessionId: string | null = null,
+    executor: Executor = this.db,
+  ): Promise<ShowtimeSeats> {
     const showtime = await this.getShowtime(id, executor);
 
     const rows = await executor
@@ -146,9 +159,31 @@ export class CatalogService {
         seatNumber: seats.seatNumber,
         category: seats.categoryCode,
         surchargeCents: seatCategories.surchargeCents,
+        holderStatus: reservations.status,
+        holderSession: reservations.sessionId,
       })
       .from(seats)
       .innerJoin(seatCategories, eq(seatCategories.code, seats.categoryCode))
+      // At most one active row per (showtime, seat) -- guaranteed by the same
+      // unique index that prevents the double booking.
+      .leftJoin(
+        reservationSeats,
+        and(
+          eq(reservationSeats.seatId, seats.id),
+          eq(reservationSeats.showtimeId, showtime.id),
+          isNull(reservationSeats.releasedAt),
+        ),
+      )
+      // An unreleased row belonging to a lapsed hold joins to nothing, so the
+      // seat reads AVAILABLE without anyone having swept it.
+      .leftJoin(
+        reservations,
+        and(
+          eq(reservations.id, reservationSeats.reservationId),
+          sql`(${reservations.status} = 'CONFIRMED'
+               OR (${reservations.status} = 'PENDING' AND ${reservations.expiresAt} > now()))`,
+        ),
+      )
       .where(eq(seats.hallId, showtime.hallId))
       .orderBy(asc(seats.rowLabel), asc(seats.seatNumber));
 
@@ -162,9 +197,13 @@ export class CatalogService {
         seatNumber: row.seatNumber,
         category: row.category as ShowtimeSeats['seats'][number]['category'],
         priceCents: showtime.basePriceCents + row.surchargeCents,
-        // Phase 1 books nothing. Sub-project 2 replaces this constant with a
-        // left join onto reservations.
-        status: 'AVAILABLE' as const,
+        status:
+          row.holderStatus === 'CONFIRMED'
+            ? ('CONFIRMED' as const)
+            : row.holderStatus === 'PENDING'
+              ? ('HELD' as const)
+              : ('AVAILABLE' as const),
+        heldByYou: sessionId !== null && row.holderSession === sessionId,
       })),
     };
   }

@@ -4,9 +4,10 @@ Seat booking under contention, built as a study of the machinery real ticketing
 systems need: transactions, distributed locking, asynchronous workers, event
 streaming and observability.
 
-This repository is being built in sub-projects. **Phase 1 — the foundation — is
-what exists today:** the catalogue API, the seat map, and the infrastructure
-everything later rests on. See
+This repository is being built in sub-projects. **Phase 2 — reservations and
+contention — is what exists today:** the catalogue API and seat map from phase 1,
+plus seat holds, a reservation lifecycle, and the proof that one seat cannot be
+sold twice. See
 [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design of each
 phase and [`docs/adr/`](docs/adr/) for why each decision was made.
 
@@ -55,17 +56,41 @@ npm run e2e -w @cinema/web    # Playwright, against a running compose stack
 API integration tests start their own `postgres:18-alpine` through
 Testcontainers, so Docker must be running.
 
-## What phase 1 deliberately does not have
+## Proving it
 
-No authentication, no booking, no Redis, no queues, no metrics. Each arrives in
+The deliverable of phase 2 is a test, not a claim:
+
+```bash
+npm test -w @cinema/api -- reservations-contention
+```
+
+Fifty clients race for one seat. Exactly one gets a `201`, forty-nine get a
+`409`, none get a `500`, and exactly one active row exists afterwards. A second
+case holds 1000 distinct seats of the premiere hall concurrently and expects
+1000 successes — the invariant serialises a seat, not a showtime.
+
+## What phase 2 deliberately does not have
+
+No authentication, no payments, no Redis, no queues, no metrics. Each arrives in
 its own sub-project together with the problem it solves — the specification's
-first principle is that no technology enters without one.
+first principle is that no technology enters without one. Phase 2 added no new
+runtime dependency at all, which is what makes sub-project 3's measured
+comparison of PostgreSQL against Redis worth running.
 
 ## Notable details
 
-- **Seats belong to halls, not to showtimes.** Availability will attach to the
-  `(showtime, seat)` pair in sub-project 2. Copying 1000 seats per showtime
-  would mean 100k duplicate rows per hall per season.
+- **Seats belong to halls, not to showtimes.** Availability attaches to the
+  `(showtime, seat)` pair. Copying 1000 seats per showtime would mean 100k
+  duplicate rows per hall per season.
+- **No double booking is a partial unique index, not application code.**
+  `reservation_seats (showtime_id, seat_id) WHERE released_at IS NULL` is the
+  invariant; holds are taken with `INSERT ... ON CONFLICT DO NOTHING RETURNING`,
+  so the index — not a service check — serialises the race, and the returned rows
+  name the seats the caller lost.
+- **Holds expire lazily, with no scheduler.** A lapsed hold is released by the
+  next caller who wants those seats. The API runs no cron job, no worker and no
+  timer of any kind; the only interval in the repository is the one-second tick
+  that redraws the countdown in the browser.
 - **Overlapping showtimes are impossible by construction** — a GiST exclusion
   constraint over `tstzrange`, not an application check.
 - **Every failure is an RFC 9457 problem document** carrying the request's

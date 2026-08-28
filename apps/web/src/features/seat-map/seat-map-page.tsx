@@ -1,12 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 
 import { catalogApi } from '../../shared/api/catalog';
+import { lostSeatIds } from '../../shared/api/client';
 import { queryKeys } from '../../shared/api/query-keys';
+import { reservationsApi } from '../../shared/api/reservations';
 import { ErrorState } from '../../shared/ui/error-state';
 import { Skeleton } from '../../shared/ui/skeleton';
 import { buildRows } from './build-rows';
 import { SeatGrid } from './seat-grid';
+import { SelectionSummary } from './selection-summary';
 
 const LEGEND = [
   { label: 'Standard', className: 'bg-slate-200 dark:bg-slate-700' },
@@ -16,6 +20,9 @@ const LEGEND = [
 
 export function SeatMapPage() {
   const { showtimeId = '' } = useParams();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
   const showtime = useQuery({
     queryKey: queryKeys.showtimes.detail(showtimeId),
@@ -24,9 +31,34 @@ export function SeatMapPage() {
 
   const seats = useQuery({
     queryKey: queryKeys.showtimes.seats(showtimeId),
-    // Sub-project 2 turns this into a live view; 30 s keeps the shape now.
-    staleTime: 30_000,
     queryFn: () => catalogApi.getShowtimeSeats(showtimeId),
+    // Seats change under the user while they choose. Five seconds is short
+    // enough to see contention and long enough not to be a load generator; a
+    // subscription waits for sub-project 5, where Kafka gives it a real reason.
+    refetchInterval: 5_000,
+    staleTime: 0,
+  });
+
+  // Stable, so the memoised seat buttons are not all invalidated on every click.
+  const toggle = useCallback((seatId: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (!next.delete(seatId)) next.add(seatId);
+      return next;
+    });
+  }, []);
+
+  const hold = useMutation({
+    mutationFn: () => reservationsApi.create({ showtimeId, seatIds: [...selected] }),
+    onSuccess: (reservation) => {
+      setSelected(new Set());
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showtimes.seats(showtimeId) });
+      void navigate(`/reservations/${reservation.id}`);
+    },
+    onError: () => {
+      // A lost race means the map is out of date; refetch rather than guess.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.showtimes.seats(showtimeId) });
+    },
   });
 
   if (seats.isError) return <ErrorState error={seats.error} onRetry={() => void seats.refetch()} />;
@@ -35,6 +67,11 @@ export function SeatMapPage() {
   if (seats.isPending || showtime.isPending) return <Skeleton className="h-96 w-full" />;
 
   const rows = buildRows(seats.data.seats);
+  const selectedSeats = seats.data.seats.filter((seat) => selected.has(seat.seatId));
+  const lostSeats = lostSeatIds(hold.error)
+    .map((id) => seats.data.seats.find((seat) => seat.seatId === id))
+    .filter((seat) => seat !== undefined)
+    .map((seat) => `${seat.rowLabel}${seat.seatNumber}`);
 
   return (
     <section>
@@ -48,7 +85,7 @@ export function SeatMapPage() {
       <div className="my-6 h-1.5 w-full rounded-full bg-slate-300 dark:bg-slate-700" aria-hidden />
       <p className="mb-6 text-center text-xs uppercase tracking-widest text-slate-400">Screen</p>
 
-      <SeatGrid rows={rows} />
+      <SeatGrid rows={rows} selected={selected} onToggle={toggle} />
 
       <ul className="mt-8 flex flex-wrap gap-4 text-sm">
         {LEGEND.map((item) => (
@@ -61,6 +98,20 @@ export function SeatMapPage() {
           <span aria-hidden>×</span> Taken
         </li>
       </ul>
+
+      {hold.isError && (
+        <p role="alert" className="mt-4 rounded bg-rose-100 p-3 text-sm dark:bg-rose-950">
+          {lostSeats.length > 0
+            ? `Seats ${lostSeats.join(', ')} were taken while you were choosing. Pick again.`
+            : hold.error.message}
+        </p>
+      )}
+
+      <SelectionSummary
+        seats={selectedSeats}
+        isHolding={hold.isPending}
+        onHold={() => hold.mutate()}
+      />
     </section>
   );
 }

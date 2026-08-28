@@ -24,6 +24,32 @@ test('walks from the catalogue to a seat map', async ({ page }) => {
   const grid = page.getByRole('grid', { name: /seat map/i });
   await expect(grid).toBeVisible();
   await expect(grid.getByRole('button').first()).toBeVisible();
+
+  // One test, not five: the smoke test's job is proving the stack is wired
+  // together end to end. The behaviour itself is covered by the API and
+  // component suites.
+  const seatMapUrl = page.url();
+  const seat = grid.getByRole('button').and(page.locator(':not([disabled])')).first();
+  const seatLabel = await seat.getAttribute('aria-label');
+  await seat.click();
+  await expect(seat).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: /hold seats/i }).click();
+
+  await expect(page).toHaveURL(/\/reservations\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: /your seats are held/i })).toBeVisible();
+  await expect(page.getByTestId('countdown')).toHaveText(/\d+:\d\d/);
+
+  await page.getByRole('button', { name: /confirm booking/i }).click();
+  await expect(page.getByRole('heading', { name: /booking confirmed/i })).toBeVisible();
+
+  // Back on the map, the seat is no longer selectable -- the occupancy join
+  // reading the row the confirm just committed. Matched on the seat's identity
+  // rather than its whole label, because the label's last field now reports
+  // that this confirmed seat is yours.
+  await page.goto(seatMapUrl);
+  const identity = seatLabel!.split(',').slice(0, 2).join(',');
+  await expect(page.getByRole('button', { name: new RegExp(`^${identity},`) })).toBeDisabled();
 });
 
 test('shows the 1000-seat premiere hall', async ({ page }) => {

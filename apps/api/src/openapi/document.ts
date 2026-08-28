@@ -5,11 +5,23 @@ import { ROUTES, type RouteDoc } from './routes';
 
 type JsonSchema = Record<string, unknown>;
 
+const DESCRIPTIONS: Record<number, string> = {
+  400: 'Bad request',
+  404: 'Not found',
+  409: 'Conflict',
+};
+
 export interface OpenApiOperation {
   operationId: string;
   summary: string;
   tags: string[];
-  parameters?: { name: string; in: 'path' | 'query'; required: boolean; schema: JsonSchema }[];
+  parameters?: {
+    name: string;
+    in: 'path' | 'query' | 'header';
+    required: boolean;
+    schema: JsonSchema;
+  }[];
+  requestBody?: { required: true; content: Record<string, { schema: JsonSchema }> };
   responses: Record<
     string,
     { description: string; content?: Record<string, { schema: JsonSchema }> }
@@ -19,7 +31,7 @@ export interface OpenApiOperation {
 export interface OpenApiDocument {
   openapi: '3.0.3';
   info: { title: string; version: string; description: string };
-  paths: Record<string, { get?: OpenApiOperation }>;
+  paths: Record<string, Partial<Record<RouteDoc['method'], OpenApiOperation>>>;
 }
 
 /** Zod 4 converts natively — no second schema language, so docs cannot drift from validation. */
@@ -43,16 +55,18 @@ function queryParameters(schema: z.ZodType): OpenApiOperation['parameters'] {
 function operationFor(route: RouteDoc): OpenApiOperation {
   const problem = toJson(problemDetailsSchema, 'output');
 
-  const responses: OpenApiOperation['responses'] = {
-    '200': {
-      description: 'Success',
-      content: { 'application/json': { schema: toJson(route.response, 'output') } },
-    },
-  };
+  const responses: OpenApiOperation['responses'] = route.response
+    ? {
+        '200': {
+          description: 'Success',
+          content: { 'application/json': { schema: toJson(route.response, 'output') } },
+        },
+      }
+    : { '204': { description: 'No content' } };
 
   for (const status of route.errors) {
     responses[String(status)] = {
-      description: status === 404 ? 'Not found' : 'Bad request',
+      description: DESCRIPTIONS[status] ?? 'Bad request',
       content: { 'application/problem+json': { schema: problem } },
     };
   }
@@ -68,8 +82,26 @@ function operationFor(route: RouteDoc): OpenApiOperation {
         required: true,
         schema: { type: 'string', format: 'uuid' } as JsonSchema,
       })),
+      ...(route.requiresSession
+        ? [
+            {
+              name: 'X-Session-Id',
+              in: 'header' as const,
+              required: true,
+              schema: { type: 'string', format: 'uuid' } as JsonSchema,
+            },
+          ]
+        : []),
       ...(route.query ? (queryParameters(route.query) ?? []) : []),
     ],
+    ...(route.body
+      ? {
+          requestBody: {
+            required: true as const,
+            content: { 'application/json': { schema: toJson(route.body, 'input') } },
+          },
+        }
+      : {}),
     responses,
   };
 }
@@ -77,8 +109,10 @@ function operationFor(route: RouteDoc): OpenApiOperation {
 export function buildOpenApiDocument(): OpenApiDocument {
   const paths: OpenApiDocument['paths'] = {};
 
+  // Merged, not assigned: `/api/v1/reservations` is served by both a GET and a
+  // POST, and overwriting would silently drop whichever came first.
   for (const route of ROUTES) {
-    paths[route.path] = { get: operationFor(route) };
+    paths[route.path] = { ...paths[route.path], [route.method]: operationFor(route) };
   }
 
   return {
@@ -87,7 +121,7 @@ export function buildOpenApiDocument(): OpenApiDocument {
       title: 'Cinema Booking Platform API',
       version: '1.0.0',
       description:
-        'Read-only catalogue of movies, cinemas, showtimes and seat maps. Generated from the Zod schemas in @cinema/contracts, which are the same schemas that validate requests.',
+        'Catalogue of movies, cinemas, showtimes and seat maps, plus seat reservations. Generated from the Zod schemas in @cinema/contracts, which are the same schemas that validate requests.',
     },
     paths,
   };

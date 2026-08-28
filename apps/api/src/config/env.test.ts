@@ -18,6 +18,8 @@ describe('parseEnv', () => {
       databaseUrl: 'postgres://cinema:cinema@localhost:5432/cinema',
       logLevel: 'silent',
       publicErrorBaseUrl: 'https://cinema.example/errors',
+      reservationTtlSeconds: 600,
+      databasePoolMax: 10,
     });
   });
 
@@ -27,6 +29,9 @@ describe('parseEnv', () => {
     expect(config.port).toBe(3000);
     expect(config.host).toBe('0.0.0.0');
     expect(config.logLevel).toBe('info');
+    // Ten minutes to pay (spec.md §9), and the pool the contention suite raises.
+    expect(config.reservationTtlSeconds).toBe(600);
+    expect(config.databasePoolMax).toBe(10);
   });
 
   it('throws a readable error when DATABASE_URL is missing', () => {

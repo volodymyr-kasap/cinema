@@ -24,6 +24,11 @@ export const problemDetailsSchema = z.object({
   detail: z.string(),
   instance: z.string(),
   traceId: z.string(),
+  /**
+   * RFC 9457 extension member, present only on `seats-unavailable`: the seats
+   * this request lost. It is what lets the map highlight exactly those.
+   */
+  seatIds: z.array(z.uuid()).optional(),
 });
 export type ProblemDetails = z.infer<typeof problemDetailsSchema>;
 

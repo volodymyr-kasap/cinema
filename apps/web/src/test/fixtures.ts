@@ -1,4 +1,4 @@
-import type { Cinema, Movie, Showtime, ShowtimeSeats } from '@cinema/contracts';
+import type { Cinema, Movie, Reservation, Showtime, ShowtimeSeats } from '@cinema/contracts';
 
 export const movieFixture: Movie = {
   id: '019298a1-7c4e-7c3a-8f21-2f4a9c1d5b60',
@@ -52,7 +52,36 @@ export const seatMapFixture: ShowtimeSeats = {
       seatNumber,
       category: rowIndex === 2 ? ('VIP' as const) : ('STANDARD' as const),
       priceCents: rowIndex === 2 ? 23_000 : 15_000,
-      status: 'AVAILABLE' as const,
+      // Row A seat 3 is held by a stranger, so the map has one seat that must
+      // render as unavailable and must not be selectable.
+      status: rowLabel === 'A' && seatNumber === 3 ? ('HELD' as const) : ('AVAILABLE' as const),
+      heldByYou: false,
     })),
   ),
 };
+
+/** Row A seat 1 — the seat the seat-map tests select and lose. */
+export const SEAT_A1_ID = seatMapFixture.seats.find(
+  (seat) => seat.rowLabel === 'A' && seat.seatNumber === 1,
+)!.seatId;
+
+export function makeReservation(overrides: Partial<Reservation> = {}): Reservation {
+  return {
+    id: '019298a1-7c4e-7c3a-8f21-000000000090',
+    showtimeId: showtimeFixture.id,
+    status: 'PENDING',
+    totalPriceCents: 45_000,
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    createdAt: new Date().toISOString(),
+    seats: [
+      {
+        seatId: '019298a1-7c4e-7c3a-8f21-000000000002',
+        rowLabel: 'C',
+        seatNumber: 7,
+        category: 'VIP',
+        priceCents: 45_000,
+      },
+    ],
+    ...overrides,
+  };
+}

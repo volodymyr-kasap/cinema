@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router';
 
 import { MovieDetailPage } from '../features/showtimes/movie-detail-page';
 import { MovieListPage } from '../features/movies/movie-list-page';
+import { ReservationPage } from '../features/reservations/reservation-page';
 import { SeatMapPage } from '../features/seat-map/seat-map-page';
 import { Layout } from './layout';
 
@@ -16,6 +17,7 @@ export function AppRoutes() {
         <Route index element={<MovieListPage />} />
         <Route path="movies/:movieId" element={<MovieDetailPage />} />
         <Route path="showtimes/:showtimeId" element={<SeatMapPage />} />
+        <Route path="reservations/:reservationId" element={<ReservationPage />} />
       </Route>
     </Routes>
   );

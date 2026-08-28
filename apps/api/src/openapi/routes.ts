@@ -1,9 +1,12 @@
 import {
   cinemaPageSchema,
   cinemaSchema,
+  createReservationSchema,
   movieSchema,
   moviePageSchema,
   paginationQuerySchema,
+  reservationPageSchema,
+  reservationSchema,
   showtimePageSchema,
   showtimeQuerySchema,
   showtimeSchema,
@@ -12,7 +15,7 @@ import {
 import type { z } from 'zod';
 
 export interface RouteDoc {
-  method: 'get';
+  method: 'get' | 'post' | 'delete';
   /** OpenAPI path template, with `{id}` where Nest writes `:id`. */
   path: string;
   operationId: string;
@@ -20,7 +23,11 @@ export interface RouteDoc {
   tags: string[];
   pathParams: string[];
   query?: z.ZodType;
-  response: z.ZodType;
+  body?: z.ZodType;
+  /** Documents the `X-Session-Id` header as a required parameter. */
+  requiresSession?: boolean;
+  /** `undefined` for 204 responses, which carry no body. */
+  response?: z.ZodType;
   errors: number[];
 }
 
@@ -99,5 +106,61 @@ export const ROUTES: RouteDoc[] = [
     pathParams: ID_PARAM,
     response: showtimeSeatsSchema,
     errors: [400, 404],
+  },
+  {
+    method: 'post',
+    path: '/api/v1/reservations',
+    operationId: 'createReservation',
+    summary: 'Hold seats for a showtime',
+    tags: ['reservations'],
+    pathParams: [],
+    body: createReservationSchema,
+    requiresSession: true,
+    response: reservationSchema,
+    errors: [400, 404, 409],
+  },
+  {
+    method: 'get',
+    path: '/api/v1/reservations',
+    operationId: 'listReservations',
+    summary: "List this session's reservations, newest first",
+    tags: ['reservations'],
+    pathParams: [],
+    query: paginationQuerySchema,
+    requiresSession: true,
+    response: reservationPageSchema,
+    errors: [400],
+  },
+  {
+    method: 'get',
+    path: '/api/v1/reservations/{id}',
+    operationId: 'getReservation',
+    summary: 'Fetch one reservation of this session',
+    tags: ['reservations'],
+    pathParams: ID_PARAM,
+    requiresSession: true,
+    response: reservationSchema,
+    errors: [400, 404],
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/reservations/{id}',
+    operationId: 'cancelReservation',
+    summary: 'Cancel a reservation and release its seats',
+    tags: ['reservations'],
+    pathParams: ID_PARAM,
+    requiresSession: true,
+    errors: [400, 404, 409],
+  },
+  {
+    method: 'post',
+    path: '/api/v1/reservations/{id}/confirm',
+    operationId: 'confirmReservation',
+    summary: 'Confirm a pending reservation',
+    tags: ['reservations'],
+    pathParams: ID_PARAM,
+    requiresSession: true,
+    response: reservationSchema,
+    errors: [400, 404, 409],
   },
 ];

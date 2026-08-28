@@ -1,6 +1,8 @@
 import { problemDetailsSchema, type ProblemDetails } from '@cinema/contracts';
 import type { z } from 'zod';
 
+import { getSessionId } from './session';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export class ApiError extends Error {
@@ -37,7 +39,13 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
     ...init,
-    headers: { accept: 'application/json', ...init?.headers },
+    headers: {
+      accept: 'application/json',
+      // Sent on every request, including the seat map, which uses it to mark
+      // the caller's own holds.
+      'x-session-id': getSessionId(),
+      ...init?.headers,
+    },
   });
 
   if (!response.ok) {
@@ -46,10 +54,18 @@ export async function apiFetch<T>(
     throw new ApiError(problem.success ? problem.data : fallbackProblem(response.status, path));
   }
 
+  // 204 carries no body, and `response.json()` throws on an empty one.
+  if (response.status === 204) return schema.parse(undefined);
+
   const parsed = schema.safeParse(await response.json());
   if (!parsed.success) {
     throw new Error(`Response for ${path} does not match its contract: ${parsed.error.message}`);
   }
 
   return parsed.data;
+}
+
+/** The seats a `seats-unavailable` response says this request lost. */
+export function lostSeatIds(error: unknown): string[] {
+  return error instanceof ApiError ? (error.problem.seatIds ?? []) : [];
 }

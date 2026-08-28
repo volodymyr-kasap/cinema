@@ -20,19 +20,26 @@ export interface SeatButtonProps {
   seat: ShowtimeSeat;
   position: string;
   isActive: boolean;
+  isSelected: boolean;
   onFocus: () => void;
+  onToggle: (seatId: string) => void;
 }
 
 /**
  * Memoised on purpose: the premiere hall renders 1000 of these, and selecting a
- * seat in sub-project 2 must repaint one of them, not the whole hall.
+ * seat must repaint one of them, not the whole hall. That only holds while
+ * `onToggle` is stable, so the page memoises it.
  */
 export const SeatButton = memo(function SeatButton({
   seat,
   position,
   isActive,
+  isSelected,
   onFocus,
+  onToggle,
 }: SeatButtonProps) {
+  // Your own hold is still unavailable to select: choosing it again would lose
+  // a 409 to your own reservation. It is labelled differently, not enabled.
   const taken = seat.status !== 'AVAILABLE';
 
   return (
@@ -41,15 +48,18 @@ export const SeatButton = memo(function SeatButton({
       data-grid-cell={position}
       tabIndex={isActive ? 0 : -1}
       onFocus={onFocus}
+      onClick={() => onToggle(seat.seatId)}
       disabled={taken}
+      aria-pressed={isSelected}
       aria-label={`Row ${seat.rowLabel}, seat ${seat.seatNumber}, ${seat.category.toLowerCase()}, ${formatPrice(
         seat.priceCents,
-      )}, ${seat.status.toLowerCase()}`}
+      )}, ${seat.heldByYou ? 'held by you' : seat.status.toLowerCase()}`}
       className={`flex size-7 items-center justify-center rounded text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-40 ${
-        CATEGORY_STYLE[seat.category]
-      }`}
+        isSelected ? 'ring-2 ring-sky-500' : ''
+      } ${CATEGORY_STYLE[seat.category]}`}
     >
-      <span aria-hidden>{STATUS_GLYPH[seat.status] || seat.seatNumber}</span>
+      {/* Selection is never carried by the ring alone: a glyph carries it too. */}
+      <span aria-hidden>{isSelected ? '✓' : STATUS_GLYPH[seat.status] || seat.seatNumber}</span>
     </button>
   );
 });

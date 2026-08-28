@@ -4,9 +4,9 @@ export const seatCategorySchema = z.enum(['STANDARD', 'VIP', 'RECLINER']);
 export type SeatCategory = z.infer<typeof seatCategorySchema>;
 
 /**
- * `HELD` and `CONFIRMED` cannot occur yet — nothing books a seat in phase 1.
- * The values exist now so the seat map does not have to be rewritten when
- * sub-project 2 starts producing them.
+ * `HELD` means someone's unexpired hold covers this seat; `CONFIRMED` means it
+ * is sold. A hold past its expiry reads as `AVAILABLE` — expiry is decided by
+ * the same predicate that decides whether a hold blocks an insert.
  */
 export const seatStatusSchema = z.enum(['AVAILABLE', 'HELD', 'CONFIRMED']);
 export type SeatStatus = z.infer<typeof seatStatusSchema>;
@@ -19,6 +19,12 @@ export const showtimeSeatSchema = z.object({
   /** Showtime base price plus the category surcharge; the client never computes this. */
   priceCents: z.int().nonnegative(),
   status: seatStatusSchema,
+  /**
+   * True when the reservation covering this seat belongs to the caller's
+   * session. Without it the map cannot tell your own hold from a stranger's and
+   * shows your seats as unavailable to you.
+   */
+  heldByYou: z.boolean(),
 });
 export type ShowtimeSeat = z.infer<typeof showtimeSeatSchema>;
 

@@ -20,6 +20,7 @@ import {
   type ShowtimeSeats,
 } from '@cinema/contracts';
 
+import { OptionalSessionId } from '../http/session.decorator';
 import { Validated } from '../http/validated.decorator';
 import { zodPipe } from '../http/zod-validation.pipe';
 import { CatalogService } from './catalog.service';
@@ -70,7 +71,10 @@ export class CatalogController {
 
   @Get('showtimes/:id/seats')
   @Validated(showtimeSeatsSchema)
-  getShowtimeSeats(@Param(zodPipe(idParamSchema)) params: IdParam): Promise<ShowtimeSeats> {
-    return this.catalog.getShowtimeSeats(params.id);
+  getShowtimeSeats(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @OptionalSessionId() sessionId: string | null,
+  ): Promise<ShowtimeSeats> {
+    return this.catalog.getShowtimeSeats(params.id, sessionId);
   }
 }
