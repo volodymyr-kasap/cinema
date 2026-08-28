@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: cinema
+      POSTGRES_PASSWORD: cinema
+      POSTGRES_DB: cinema
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cinema -d cinema']
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    volumes:
+      # PostgreSQL 18 changed the convention: a single mount at /var/lib/postgresql,
+      # with the cluster in a versioned subdirectory. Mounting .../data instead —
+      # correct for 17 and earlier — makes the 18 image refuse to start, reporting
+      # the mount as unused. See docker-library/postgres#1259.
+      - postgres-data:/var/lib/postgresql
+
+  # Migrations run as their own step, not from the app bootstrap: with more than
+  # one API replica, parallel bootstraps would race each other over DDL.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgres://cinema:cinema@postgres:5432/cinema
+    command: ['node', 'apps/api/dist/db/migrate.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  seed:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgres://cinema:cinema@postgres:5432/cinema
+    command: ['node', 'apps/api/dist/db/seed.js']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgres://cinema:cinema@postgres:5432/cinema
+      LOG_LEVEL: info
+    ports:
+      - '3000:3000'
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '8080:80'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
