@@ -16,6 +16,17 @@ const STATUS_GLYPH: Record<ShowtimeSeat['status'], string> = {
   CONFIRMED: '×',
 };
 
+/**
+ * The last field of a seat's label. Ownership and status are two separate
+ * facts: a seat you confirmed is both yours *and* sold, and collapsing that to
+ * "held by you" would tell a screen-reader user their booked seat is merely on
+ * hold.
+ */
+function describeState(seat: ShowtimeSeat): string {
+  if (!seat.heldByYou) return seat.status.toLowerCase();
+  return seat.status === 'CONFIRMED' ? 'confirmed, yours' : 'held by you';
+}
+
 export interface SeatButtonProps {
   seat: ShowtimeSeat;
   position: string;
@@ -53,7 +64,7 @@ export const SeatButton = memo(function SeatButton({
       aria-pressed={isSelected}
       aria-label={`Row ${seat.rowLabel}, seat ${seat.seatNumber}, ${seat.category.toLowerCase()}, ${formatPrice(
         seat.priceCents,
-      )}, ${seat.heldByYou ? 'held by you' : seat.status.toLowerCase()}`}
+      )}, ${describeState(seat)}`}
       className={`flex size-7 items-center justify-center rounded text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-40 ${
         isSelected ? 'ring-2 ring-sky-500' : ''
       } ${CATEGORY_STYLE[seat.category]}`}

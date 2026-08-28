@@ -166,4 +166,31 @@ describe('SeatMapPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/a1/i);
   });
+
+  // "held by you" on a sold seat loses the fact that it is sold. Ownership and
+  // status are two different things and the label has to carry both.
+  it('says a seat is yours without hiding whether it is held or sold', async () => {
+    server.use(
+      http.get('/api/v1/showtimes/:id/seats', () =>
+        HttpResponse.json({
+          ...seatMapFixture,
+          seats: seatMapFixture.seats.map((seat) => {
+            if (seat.rowLabel !== 'B') return seat;
+            if (seat.seatNumber === 1) return { ...seat, status: 'CONFIRMED', heldByYou: true };
+            if (seat.seatNumber === 2) return { ...seat, status: 'HELD', heldByYou: true };
+            return seat;
+          }),
+        }),
+      ),
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByRole('button', { name: /row b, seat 1,.*confirmed, yours$/i }),
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: /row b, seat 2,.*held by you$/i })).toBeDisabled();
+    // A stranger's hold still reads plainly, with no claim of ownership.
+    expect(screen.getByRole('button', { name: /row a, seat 3,.*held$/i })).toBeDisabled();
+  });
 });

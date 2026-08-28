@@ -43,13 +43,13 @@ test('walks from the catalogue to a seat map', async ({ page }) => {
   await page.getByRole('button', { name: /confirm booking/i }).click();
   await expect(page.getByRole('heading', { name: /booking confirmed/i })).toBeVisible();
 
-  // Back on the map, the seat is no longer selectable -- the occupancy join
-  // reading the row the confirm just committed. Matched on the seat's identity
-  // rather than its whole label, because the label's last field now reports
-  // that this confirmed seat is yours.
+  // Back on the map, the seat now reads as sold and yours -- the occupancy join
+  // reading the row the confirm just committed.
   await page.goto(seatMapUrl);
-  const identity = seatLabel!.split(',').slice(0, 2).join(',');
-  await expect(page.getByRole('button', { name: new RegExp(`^${identity},`) })).toBeDisabled();
+  const sold = page.getByRole('button', {
+    name: seatLabel!.replace(/available$/, 'confirmed, yours'),
+  });
+  await expect(sold).toBeDisabled();
 });
 
 test('shows the 1000-seat premiere hall', async ({ page }) => {
