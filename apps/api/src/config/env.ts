@@ -7,6 +7,13 @@ const envSchema = z.object({
   DATABASE_URL: z.url(),
   LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   PUBLIC_ERROR_BASE_URL: z.url().default('https://cinema.example/errors'),
+  // Section 9 of spec.md gives the user ten minutes to pay. Configurable because
+  // the contention tests need it expressed in seconds.
+  RESERVATION_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(600),
+  // The contention test must hold more simultaneous transactions than it has
+  // clients; at the default of 10 it would measure the connection queue instead
+  // of the seat race, and pass for the wrong reason.
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
 });
 
 export type AppConfig = {
@@ -16,6 +23,8 @@ export type AppConfig = {
   databaseUrl: string;
   logLevel: z.infer<typeof envSchema>['LOG_LEVEL'];
   publicErrorBaseUrl: string;
+  reservationTtlSeconds: number;
+  databasePoolMax: number;
 };
 
 /**
@@ -36,5 +45,7 @@ export function parseEnv(source: NodeJS.ProcessEnv): AppConfig {
     databaseUrl: env.DATABASE_URL,
     logLevel: env.LOG_LEVEL,
     publicErrorBaseUrl: env.PUBLIC_ERROR_BASE_URL.replace(/\/+$/, ''),
+    reservationTtlSeconds: env.RESERVATION_TTL_SECONDS,
+    databasePoolMax: env.DATABASE_POOL_MAX,
   };
 }

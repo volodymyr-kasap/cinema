@@ -1,9 +1,11 @@
-import { sql } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import {
+  check,
   date,
   index,
   integer,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -106,4 +108,73 @@ export const showtimes = pgTable(
   ],
 );
 
-export const schema = { users, movies, cinemas, halls, seatCategories, seats, showtimes };
+export const reservations = pgTable(
+  'reservations',
+  {
+    id: primaryId(),
+    showtimeId: uuid('showtime_id')
+      .notNull()
+      .references(() => showtimes.id),
+    /**
+     * An anonymous browser session, not a user. Phase 2 has no authentication,
+     * and a nullable `user_id` nobody writes would be a dead column, not a seam.
+     */
+    sessionId: uuid('session_id').notNull(),
+    status: text('status').notNull(),
+    totalPriceCents: integer('total_price_cents').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('reservations_session_created_idx').on(t.sessionId, desc(t.createdAt), desc(t.id)),
+    check(
+      'reservations_status_check',
+      sql`${t.status} IN ('PENDING', 'CONFIRMED', 'CANCELLED', 'EXPIRED')`,
+    ),
+  ],
+);
+
+export const reservationSeats = pgTable(
+  'reservation_seats',
+  {
+    reservationId: uuid('reservation_id')
+      .notNull()
+      .references(() => reservations.id, { onDelete: 'cascade' }),
+    seatId: uuid('seat_id')
+      .notNull()
+      .references(() => seats.id),
+    /**
+     * Denormalised from the parent reservation for exactly one reason: a partial
+     * unique index can only see columns on its own row, and this is the column
+     * the invariant is keyed on.
+     */
+    showtimeId: uuid('showtime_id')
+      .notNull()
+      .references(() => showtimes.id),
+    /** Quoted at hold time — the showtime's price may move while a user decides. */
+    priceCents: integer('price_cents').notNull(),
+    /** NULL means this seat is taken. This column is the whole invariant. */
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.reservationId, t.seatId] }),
+    uniqueIndex('reservation_seats_active_uq')
+      .on(t.showtimeId, t.seatId)
+      .where(sql`released_at IS NULL`),
+  ],
+);
+
+export const schema = {
+  users,
+  movies,
+  cinemas,
+  halls,
+  seatCategories,
+  seats,
+  showtimes,
+  reservations,
+  reservationSeats,
+};

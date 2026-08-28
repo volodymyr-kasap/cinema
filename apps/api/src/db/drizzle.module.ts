@@ -23,7 +23,10 @@ export type Executor = Database | Parameters<Parameters<Database['transaction']>
       provide: PG_POOL,
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        new Pool({ connectionString: configService.config.databaseUrl, max: 10 }),
+        new Pool({
+          connectionString: configService.config.databaseUrl,
+          max: configService.config.databasePoolMax,
+        }),
     },
     {
       provide: DRIZZLE,
