@@ -1,4 +1,4 @@
-import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
+import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
@@ -22,11 +22,24 @@ export type Executor = Database | Parameters<Parameters<Database['transaction']>
     {
       provide: PG_POOL,
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) =>
-        new Pool({
+      useFactory: (configService: ConfigService) => {
+        const pool = new Pool({
           connectionString: configService.config.databaseUrl,
           max: configService.config.databasePoolMax,
-        }),
+        });
+
+        // pg raises this on the pool when an *idle* client's connection dies --
+        // a database restart, a failover, a dropped link. Node turns an
+        // unhandled 'error' event into a process abort, so without this listener
+        // a Postgres restart takes the API down with it. The pool has already
+        // discarded the dead client by the time we get here; the next checkout
+        // opens a fresh one.
+        pool.on('error', (error: Error) => {
+          new Logger(DrizzleModule.name).error('idle database client failed', error.stack);
+        });
+
+        return pool;
+      },
     },
     {
       provide: DRIZZLE,

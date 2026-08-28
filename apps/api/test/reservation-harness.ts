@@ -45,6 +45,10 @@ export interface ReservationHarness {
 
 export async function startReservationHarness(): Promise<ReservationHarness> {
   const pool = new Pool({ connectionString: getTestDatabaseUrl() });
+  // Testcontainers stops the database while connections may still be open, and
+  // pg turns an unhandled idle-client error into a process abort. The suite is
+  // over by then, so the only useful response is to ignore it.
+  pool.on('error', () => {});
   const db = drizzle(pool, { schema }) as Database;
   await seedDatabase(db);
 
