@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+
+/* Tailwind 4 keys `dark:` off this selector, which is what the toggle flips. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+}
