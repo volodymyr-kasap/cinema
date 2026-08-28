@@ -1,9 +1,18 @@
-import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Inject,
+  ServiceUnavailableException,
+  VERSION_NEUTRAL,
+} from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
 import { DRIZZLE, type Database } from '../db/drizzle.module';
 
-@Controller()
+// Version-neutral as well as prefix-excluded: setGlobalPrefix's `exclude` only
+// strips the /api prefix, so without this enableVersioning would still serve these
+// at /v1/health. Orchestrators probe a fixed, unversioned path.
+@Controller({ version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 

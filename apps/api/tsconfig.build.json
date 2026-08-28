@@ -1,5 +1,8 @@
 {
   "extends": "./tsconfig.json",
+  // Emit-only. `nest build` needs an explicit rootDir (TS5011); tsconfig.json
+  // cannot carry it because it also includes test/ and the root-level configs.
+  "compilerOptions": { "rootDir": "src" },
   "exclude": [
     "node_modules",
     "dist",

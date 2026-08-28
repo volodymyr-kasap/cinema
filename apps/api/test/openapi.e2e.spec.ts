@@ -3,16 +3,17 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing';
 
 import { AppModule } from '../src/app.module';
+import { generateRequestId, registerCorrelation } from '../src/observability/logger';
 
-describe('GET /health', () => {
+describe('GET /api/openapi.json', () => {
   let app: NestFastifyApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter({ logger: false }),
+      new FastifyAdapter({ logger: false, genReqId: generateRequestId }),
     );
-    // Must match main.ts, or this suite cannot catch a route the real app 404s on.
+    registerCorrelation(app);
     app.setGlobalPrefix('api', { exclude: ['health', 'ready'] });
     app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
     await app.init();
@@ -23,17 +24,12 @@ describe('GET /health', () => {
     await app.close();
   });
 
-  it('reports the process as alive', async () => {
-    const response = await app.inject({ method: 'GET', url: '/health' });
+  it('serves the generated document', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/openapi.json' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok' });
-  });
-
-  it('reports readiness once the database answers', async () => {
-    const response = await app.inject({ method: 'GET', url: '/ready' });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ready' });
+    const document = response.json() as { openapi: string; paths: Record<string, unknown> };
+    expect(document.openapi).toBe('3.0.3');
+    expect(Object.keys(document.paths)).toHaveLength(7);
   });
 });
