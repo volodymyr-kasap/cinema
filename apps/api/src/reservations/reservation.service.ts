@@ -171,12 +171,18 @@ export class ReservationService {
   }
 
   async confirm(sessionId: string, id: string): Promise<Reservation> {
-    return this.db.transaction(async (tx) => {
+    /**
+     * The expiry is reported *after* the transaction, never thrown from inside
+     * it: throwing rolls back, which would discard the very EXPIRED row this
+     * call just wrote and leave the seats held by a hold nobody can confirm.
+     * Whoever discovers the expiry records it, then answers 409.
+     */
+    const outcome = await this.db.transaction(async (tx) => {
       const row = await this.lockOwned(tx, sessionId, id);
 
       if (row.status === 'PENDING' && row.expired) {
         await this.expire(tx, id);
-        throw new ReservationExpiredError(id);
+        return null;
       }
       if (!canTransition(row.status, 'CONFIRMED')) {
         throw new InvalidStateTransitionError(row.status, 'CONFIRMED');
@@ -189,6 +195,9 @@ export class ReservationService {
 
       return this.get(sessionId, id, tx);
     });
+
+    if (!outcome) throw new ReservationExpiredError(id);
+    return outcome;
   }
 
   async cancel(sessionId: string, id: string): Promise<void> {

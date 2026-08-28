@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 
 import { CatalogController } from '../catalog/catalog.controller';
+import { ReservationController } from '../reservations/reservation.controller';
 import { RESPONSE_SCHEMA } from '../http/validated.decorator';
 import { buildOpenApiDocument } from './document';
 import { ROUTES } from './routes';
@@ -13,13 +14,16 @@ describe('buildOpenApiDocument', () => {
     expect(document.info.title).toBe('Cinema Booking Platform API');
   });
 
-  it('documents every catalogue route', () => {
+  it('documents every catalogue and reservation route', () => {
     expect(Object.keys(document.paths).sort()).toEqual(
       [
         '/api/v1/cinemas',
         '/api/v1/cinemas/{id}',
         '/api/v1/movies',
         '/api/v1/movies/{id}',
+        '/api/v1/reservations',
+        '/api/v1/reservations/{id}',
+        '/api/v1/reservations/{id}/confirm',
         '/api/v1/showtimes',
         '/api/v1/showtimes/{id}',
         '/api/v1/showtimes/{id}/seats',
@@ -52,12 +56,22 @@ describe('buildOpenApiDocument', () => {
   // cannot, so both stay. The only duplication is the response schema reference, and
   // this guard makes divergence between them impossible.
   it('documents the same schema object the handler declares with @Validated', () => {
-    const prototype = CatalogController.prototype as unknown as Record<string, () => unknown>;
+    // Keyed by tag, and every route's handler is named for its operationId --
+    // the two conventions this guard rides on.
+    const prototypes: Record<string, Record<string, () => unknown>> = {
+      catalogue: CatalogController.prototype as unknown as Record<string, () => unknown>,
+      reservations: ReservationController.prototype as unknown as Record<string, () => unknown>,
+    };
 
     for (const route of ROUTES) {
-      const handler = prototype[route.operationId];
+      const prototype = prototypes[route.tags[0]!];
+      expect(prototype).toBeDefined();
+
+      const handler = prototype![route.operationId];
       expect(handler).toBeDefined();
 
+      // `undefined` on both sides for a 204 route: it declares no response
+      // schema, and the document must not invent one for it.
       const declared: unknown = Reflect.getMetadata(RESPONSE_SCHEMA, handler as object);
       expect(declared).toBe(route.response);
     }
