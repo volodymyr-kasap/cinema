@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 
+import { VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 
@@ -25,6 +26,10 @@ async function bootstrap(): Promise<void> {
 
   app.useLogger(new PinoLoggerService(logger));
   registerCorrelation(app);
+
+  // Health and readiness stay unversioned — orchestrators probe a fixed path.
+  app.setGlobalPrefix('api', { exclude: ['health', 'ready'] });
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 
   const { config } = app.get(ConfigService);
   app.enableCors({ origin: true });
