@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { problemDetailsSchema, reservationSchema } from '@cinema/contracts';
+import { problemDetailsSchema, reservationPageSchema, reservationSchema } from '@cinema/contracts';
 import { sql } from 'drizzle-orm';
 
 import { startReservationHarness, type ReservationHarness } from './reservation-harness';
@@ -129,5 +129,128 @@ describe('reservations: taking a hold', () => {
     );
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe('reservations: lifecycle and ownership', () => {
+  const session = randomUUID();
+  let h: ReservationHarness;
+
+  beforeAll(async () => {
+    h = await startReservationHarness();
+  });
+
+  afterAll(async () => {
+    await h.close();
+  });
+
+  beforeEach(async () => {
+    await truncateReservations(h.db);
+  });
+
+  const holdOne = (seat: string, owner = session) => h.holdOne(seat, owner);
+  const act = (method: 'GET' | 'DELETE' | 'POST', path: string, owner = session) =>
+    h.act(method, path, owner);
+
+  it('reads back a hold with its seats', async () => {
+    const created = await holdOne(h.seatIds[0]!);
+
+    const response = await act('GET', `/${created.id}`);
+
+    expect(response.statusCode).toBe(200);
+    expect(reservationSchema.parse(response.json()).id).toBe(created.id);
+  });
+
+  it('lists only this session, newest first', async () => {
+    await holdOne(h.seatIds[0]!);
+    await holdOne(h.seatIds[1]!);
+    await holdOne(h.seatIds[2]!, randomUUID());
+
+    const page = reservationPageSchema.parse((await act('GET', '')).json());
+
+    expect(page.data).toHaveLength(2);
+    expect(new Date(page.data[0]!.createdAt).getTime()).toBeGreaterThanOrEqual(
+      new Date(page.data[1]!.createdAt).getTime(),
+    );
+  });
+
+  it('confirms a pending hold', async () => {
+    const created = await holdOne(h.seatIds[3]!);
+
+    const response = await act('POST', `/${created.id}/confirm`);
+
+    expect(response.statusCode).toBe(200);
+    expect(reservationSchema.parse(response.json()).status).toBe('CONFIRMED');
+  });
+
+  it('cancels a pending hold and frees the seat', async () => {
+    const created = await holdOne(h.seatIds[4]!);
+
+    expect((await act('DELETE', `/${created.id}`)).statusCode).toBe(204);
+
+    const retaken = await h.hold([h.seatIds[4]!], randomUUID());
+    expect(retaken.statusCode).toBe(201);
+  });
+
+  // The user asked for the seats to be released and they are released. An error
+  // here would report a problem that does not exist.
+  it('treats cancelling twice as success', async () => {
+    const created = await holdOne(h.seatIds[5]!);
+    await act('DELETE', `/${created.id}`);
+
+    expect((await act('DELETE', `/${created.id}`)).statusCode).toBe(204);
+  });
+
+  it('refuses to cancel a confirmed reservation', async () => {
+    const created = await holdOne(h.seatIds[6]!);
+    await act('POST', `/${created.id}/confirm`);
+
+    const response = await act('DELETE', `/${created.id}`);
+
+    expect(response.statusCode).toBe(409);
+    expect(problemDetailsSchema.parse(response.json()).type).toMatch(/invalid-state-transition$/);
+  });
+
+  it('refuses to confirm a hold that expired while the page was open', async () => {
+    const created = await holdOne(h.seatIds[7]!);
+    await h.db.execute(
+      sql`UPDATE reservations SET expires_at = now() - interval '1 second' WHERE id = ${created.id}`,
+    );
+
+    const response = await act('POST', `/${created.id}/confirm`);
+
+    expect(response.statusCode).toBe(409);
+    expect(problemDetailsSchema.parse(response.json()).type).toMatch(/reservation-expired$/);
+
+    // Whoever discovers the expiry records it, and the seat is free again.
+    const after = await h.db.execute<{ status: string }>(
+      sql`SELECT status FROM reservations WHERE id = ${created.id}`,
+    );
+    expect(after.rows[0]?.status).toBe('EXPIRED');
+  });
+
+  it('resolves a confirm racing a cancel to exactly one winner', async () => {
+    const created = await holdOne(h.seatIds[8]!);
+
+    const [confirmed, cancelled] = await Promise.all([
+      act('POST', `/${created.id}/confirm`),
+      act('DELETE', `/${created.id}`),
+    ]);
+
+    const codes = [confirmed.statusCode, cancelled.statusCode].sort();
+    // Either the confirm lands first (200) and the cancel is refused (409), or
+    // the cancel lands first (204) and the confirm is refused (409).
+    expect(codes).toEqual(expect.arrayContaining([409]));
+    expect(codes.filter((code) => code < 300)).toHaveLength(1);
+  });
+
+  // 403 would confirm the id exists. 404 is also simply true from where the
+  // caller stands: it is not among their reservations.
+  it('hides another session\u2019s reservation behind 404', async () => {
+    const created = await holdOne(h.seatIds[9]!, randomUUID());
+
+    expect((await act('GET', `/${created.id}`)).statusCode).toBe(404);
+    expect((await act('DELETE', `/${created.id}`)).statusCode).toBe(404);
+    expect((await act('POST', `/${created.id}/confirm`)).statusCode).toBe(404);
   });
 });
