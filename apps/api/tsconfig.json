@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "outDir": "dist",
+    // A CommonJS Nest app needs node10 module resolution, which TypeScript 6 deprecates (TS5107)
+    // in favor of node16/bundler. This option suppresses that deprecation error.
+    "ignoreDeprecations": "6.0",
+    // Automatic @types inclusion does not pick up @types/jest in this workspace's hoisted
+    // node_modules layout (only @types/node is pulled in, transitively, by jest's own deps).
+    // List both explicitly so `describe`/`it`/`expect` resolve for tsc and ts-jest alike.
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "drizzle.config.ts", "jest.config.ts"]
+}
