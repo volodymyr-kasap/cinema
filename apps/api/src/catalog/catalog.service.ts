@@ -165,6 +165,8 @@ export class CatalogService {
         // Phase 1 books nothing. Sub-project 2 replaces this constant with a
         // left join onto reservations.
         status: 'AVAILABLE' as const,
+        // Task 9 replaces this constant with the real occupancy join.
+        heldByYou: false,
       })),
     };
   }

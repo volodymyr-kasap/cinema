@@ -53,6 +53,8 @@ export const seatMapFixture: ShowtimeSeats = {
       category: rowIndex === 2 ? ('VIP' as const) : ('STANDARD' as const),
       priceCents: rowIndex === 2 ? 23_000 : 15_000,
       status: 'AVAILABLE' as const,
+      // Task 9 replaces this constant with the real occupancy join.
+      heldByYou: false,
     })),
   ),
 };
