@@ -1,19 +1,33 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { Route, Routes } from 'react-router';
+import { Route, Routes, useLocation } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
-import { seatMapFixture, showtimeFixture } from '../../test/fixtures';
+import { SEAT_A1_ID, seatMapFixture, showtimeFixture } from '../../test/fixtures';
+import { conflictOnHold } from '../../test/handlers';
 import { renderWithProviders } from '../../test/render';
 import { server } from '../../test/server';
 import { SeatMapPage } from './seat-map-page';
 
+/**
+ * The suite renders under MemoryRouter, so `window.location` never moves. This
+ * reports where the router actually is, which is what a navigation assertion is
+ * really about.
+ */
+function LocationProbe() {
+  return <span data-testid="location">{useLocation().pathname}</span>;
+}
+
 function renderPage() {
   return renderWithProviders(
-    <Routes>
-      <Route path="showtimes/:showtimeId" element={<SeatMapPage />} />
-    </Routes>,
+    <>
+      <Routes>
+        <Route path="showtimes/:showtimeId" element={<SeatMapPage />} />
+        <Route path="reservations/:reservationId" element={null} />
+      </Routes>
+      <LocationProbe />
+    </>,
     { route: `/showtimes/${showtimeFixture.id}` },
   );
 }
@@ -102,5 +116,54 @@ describe('SeatMapPage', () => {
     renderPage();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Showtime does not exist');
+  });
+
+  it('selects and deselects a seat', async () => {
+    renderPage();
+    const seat = await screen.findByRole('button', { name: /row a, seat 1/i });
+
+    await userEvent.click(seat);
+    expect(seat).toHaveAttribute('aria-pressed', 'true');
+
+    await userEvent.click(seat);
+    expect(seat).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('announces the running total of the selection', async () => {
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /row a, seat 1/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /row a, seat 2/i }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/2 seats/i);
+  });
+
+  it('does not let a taken seat be selected', async () => {
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /row a, seat 3.*held/i })).toBeDisabled();
+  });
+
+  it('navigates to the reservation once the hold succeeds', async () => {
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /row a, seat 1/i }));
+    await userEvent.click(screen.getByRole('button', { name: /hold seats/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/reservations\/[0-9a-f-]+$/),
+    );
+  });
+
+  // The point of the extension member: the user is told which seats they lost,
+  // not just that something failed.
+  it('names the seats lost to another user', async () => {
+    server.use(conflictOnHold([SEAT_A1_ID]));
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: /row a, seat 1/i }));
+    await userEvent.click(screen.getByRole('button', { name: /hold seats/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/a1/i);
   });
 });

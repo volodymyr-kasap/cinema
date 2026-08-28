@@ -4,7 +4,13 @@ import { useRovingGrid } from '../../shared/lib/use-roving-grid';
 import type { SeatRow } from './build-rows';
 import { SeatButton } from './seat-button';
 
-export function SeatGrid({ rows }: { rows: SeatRow[] }) {
+export interface SeatGridProps {
+  rows: SeatRow[];
+  selected: ReadonlySet<string>;
+  onToggle: (seatId: string) => void;
+}
+
+export function SeatGrid({ rows, selected, onToggle }: SeatGridProps) {
   const rowLengths = useMemo(() => rows.map((row) => row.seats.length), [rows]);
   const { active, setActive, onKeyDown } = useRovingGrid(rowLengths);
 
@@ -26,7 +32,9 @@ export function SeatGrid({ rows }: { rows: SeatRow[] }) {
                 seat={seat}
                 position={`${rowIndex}-${colIndex}`}
                 isActive={active.row === rowIndex && active.col === colIndex}
+                isSelected={selected.has(seat.seatId)}
                 onFocus={() => setActive({ row: rowIndex, col: colIndex })}
+                onToggle={onToggle}
               />
             </div>
           ))}
