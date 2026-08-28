@@ -34,4 +34,17 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
     },
   },
+  {
+    // Must come last: it relaxes the rule the preceding block sets for every file.
+    //
+    // NestJS resolves constructor dependencies from `design:paramtypes`, which
+    // `emitDecoratorMetadata` only emits for VALUE imports. Rewriting an injected
+    // class to `import type` elides it and breaks DI at runtime — silently, because
+    // it still typechecks. Verified: `eslint --fix` under this rule rewrote
+    // ConfigService and Reflector and took the API suite from 15 passing to 3 suites
+    // failing to construct. lint-staged runs --fix on every commit, so leaving this
+    // on would corrupt the app on any commit touching an injected class.
+    files: ['apps/api/**/*.ts'],
+    rules: { '@typescript-eslint/consistent-type-imports': 'off' },
+  },
 );
