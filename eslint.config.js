@@ -11,6 +11,9 @@ export default tseslint.config(
       '**/coverage/**',
       'apps/api/drizzle/**',
       '**/playwright-report/**',
+      // k6 scripts run in k6's own runtime (`k6/http`, `__ENV`), not in Node.
+      // Linting them as Node modules reports globals that genuinely exist.
+      'load/**',
     ],
   },
   js.configs.recommended,

@@ -2,9 +2,11 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
+import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
 
 declare global {
   var __PG_CONTAINER__: StartedPostgreSqlContainer | undefined;
+  var __REDIS_CONTAINER__: StartedTestContainer | undefined;
 }
 
 export async function startTestDatabase(): Promise<StartedPostgreSqlContainer> {
@@ -23,5 +25,24 @@ export async function startTestDatabase(): Promise<StartedPostgreSqlContainer> {
 export function getTestDatabaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set; global setup did not run');
+  return url;
+}
+
+/**
+ * `redis:8-alpine`, the image the compose stack runs, so the tests and the
+ * experiment exercise the same server. Waiting on the log line rather than on
+ * the port avoids the window where the socket is open and the server is not yet
+ * answering -- which shows up as one flaky first assertion per run.
+ */
+export async function startTestRedis(): Promise<StartedTestContainer> {
+  return new GenericContainer('redis:8-alpine')
+    .withExposedPorts(6379)
+    .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
+    .start();
+}
+
+export function getTestRedisUrl(): string {
+  const url = process.env.REDIS_URL;
+  if (!url) throw new Error('REDIS_URL is not set; global setup did not run');
   return url;
 }

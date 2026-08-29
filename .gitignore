@@ -7,7 +7,12 @@ coverage/
 .env.local
 .DS_Store
 .idea/
+# Worktrees the agent harness creates inside the checkout. Without this a
+# `git add -A` on the parent branch commits an entire second copy of the tree.
+.claude/worktrees/
 playwright-report/
 test-results/
 apps/api/test/.database-url
+apps/api/test/.redis-url
 apps/web/dist/
+load/results/

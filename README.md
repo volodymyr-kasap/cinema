@@ -4,10 +4,11 @@ Seat booking under contention, built as a study of the machinery real ticketing
 systems need: transactions, distributed locking, asynchronous workers, event
 streaming and observability.
 
-This repository is being built in sub-projects. **Phase 2 — reservations and
-contention — is what exists today:** the catalogue API and seat map from phase 1,
-plus seat holds, a reservation lifecycle, and the proof that one seat cannot be
-sold twice. See
+This repository is being built in sub-projects. **Phase 3 — Redis, distributed
+locking and measurement — is what exists today:** the catalogue API and seat map
+from phase 1, seat holds and the proof that one seat cannot be sold twice from
+phase 2, and now an advisory Redis lock in front of the transaction together with
+the numbers that say what each strategy costs. See
 [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design of each
 phase and [`docs/adr/`](docs/adr/) for why each decision was made.
 
@@ -18,8 +19,16 @@ docker compose up --build
 ```
 
 - SPA: <http://localhost:8080>
-- API: <http://localhost:3000/api/v1/movies>
-- OpenAPI: <http://localhost:3000/api/docs>
+- API: <http://localhost:8080/api/v1/movies>
+- OpenAPI: <http://localhost:8080/api/docs>
+
+The API runs as three replicas behind the same nginx that serves the SPA
+(`API_REPLICAS` changes the count), so it has no published port of its own. For
+day-to-day work, one instance on the familiar port:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.single-api.yml up
+```
 
 Migrations and the seed run as their own one-shot compose services before the
 API starts.
@@ -69,13 +78,42 @@ Fifty clients race for one seat. Exactly one gets a `201`, forty-nine get a
 case holds 1000 distinct seats of the premiere hall concurrently and expects
 1000 successes — the invariant serialises a seat, not a showtime.
 
-## What phase 2 deliberately does not have
+Since phase 3 the suite runs twice, once per `LOCK_STRATEGY`. The Redis path does
+not inherit these guarantees, it re-earns them: an advisory lock that changed any
+of these answers would be a lock that had quietly become authoritative.
 
-No authentication, no payments, no Redis, no queues, no metrics. Each arrives in
-its own sub-project together with the problem it solves — the specification's
-first principle is that no technology enters without one. Phase 2 added no new
-runtime dependency at all, which is what makes sub-project 3's measured
-comparison of PostgreSQL against Redis worth running.
+## The experiment
+
+Sub-project 3's deliverable is a comparison, not an opinion. Both strategies run
+the same two scenarios against the same stack:
+
+```bash
+LOCK_STRATEGY=db    npm run load:correctness   # 10 000 attempts -> 1000 sold, 0 twice
+LOCK_STRATEGY=redis npm run load:correctness
+LOCK_STRATEGY=db    npm run load:performance   # 100 -> 500 -> 1000 -> 2000 req/s
+LOCK_STRATEGY=redis npm run load:performance
+```
+
+k6 runs inside the stack's network and goes through nginx, so it competes with
+nothing on the host loopback. The correctness run is pass/fail and does not
+depend on how fast the machine is; the performance run asserts nothing except
+that all three replicas were actually serving traffic — a run where one replica
+answered everything is a measurement of one container, not of a cluster.
+
+Results: [`docs/experiments/2026-08-28-db-vs-redis-locking.md`](docs/experiments/2026-08-28-db-vs-redis-locking.md).
+
+## What phase 3 deliberately does not have
+
+Still no authentication, no payments, no queues, no metrics. Each arrives in its
+own sub-project together with the problem it solves — the specification's first
+principle is that no technology enters without one.
+
+Phase 3 admits exactly one new runtime dependency, `ioredis`, and it had to earn
+it. ADR 0008 deferred Redis in phase 1 so that the database-only path would exist
+as an honest baseline; the price of that path is that every loser pays a
+transaction and a connection. Phase 3's job was to measure that price rather than
+assert it, which is why both strategies still ship in the same build and the
+comparison can be re-run on any commit.
 
 ## Notable details
 
@@ -87,6 +125,10 @@ comparison of PostgreSQL against Redis worth running.
   invariant; holds are taken with `INSERT ... ON CONFLICT DO NOTHING RETURNING`,
   so the index — not a service check — serialises the race, and the returned rows
   name the seats the caller lost.
+- **The Redis lock is advisory, and the index still has the last word.** A key
+  missing means Redis does not know, never that the seat is free. `FLUSHALL`
+  against a running stack costs a wasted transaction per request and produces no
+  double booking — there is a test that does exactly that.
 - **Holds expire lazily, with no scheduler.** A lapsed hold is released by the
   next caller who wants those seats. The API runs no cron job, no worker and no
   timer of any kind; the only interval in the repository is the one-second tick
