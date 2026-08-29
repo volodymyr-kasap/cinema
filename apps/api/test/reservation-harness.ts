@@ -6,6 +6,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { Redis } from 'ioredis';
 import type { InjectOptions, Response as LightMyRequestResponse } from 'light-my-request';
 import { Pool } from 'pg';
 
@@ -15,8 +16,25 @@ import type { Database } from '../src/db/drizzle.module';
 import { schema } from '../src/db/schema';
 import { seedDatabase } from '../src/db/seed';
 import { ProblemDetailsFilter } from '../src/http/problem-details.filter';
+import { createRedisClient } from '../src/locking/redis.module';
+import { SEAT_LOCK, type SeatLock } from '../src/locking/seat-lock';
 import { generateRequestId, registerCorrelation } from '../src/observability/logger';
-import { getTestDatabaseUrl } from './harness';
+import { getTestDatabaseUrl, getTestRedisUrl } from './harness';
+
+export interface HarnessOptions {
+  /** Which adapter the application under test binds to SEAT_LOCK. */
+  lockStrategy?: 'db' | 'redis';
+  /** Overrides REDIS_URL. Pointing it at a closed port is how fail open is proved. */
+  redisUrl?: string;
+  /** Shortens the hold, and with it the key's TTL. */
+  ttlSeconds?: number;
+  /**
+   * Raised above the client count by the contention suite. At the default of
+   * ten, forty of fifty clients queue for a connection instead of racing for a
+   * seat and the suite passes for the wrong reason (ADR 0015).
+   */
+  poolMax?: number;
+}
 
 export interface ReservationHarness {
   app: NestFastifyApplication;
@@ -40,10 +58,41 @@ export interface ReservationHarness {
     path: string,
     session: string,
   ): Promise<LightMyRequestResponse>;
+  /**
+   * A second connection, always to the real container even when the application
+   * is pointed at a dead one, for asserting on keys the application wrote.
+   * `null` unless the harness was started with `lockStrategy: 'redis'`.
+   */
+  redis: Redis | null;
+  /** The adapter the application actually bound, for calling the port directly. */
+  lock: SeatLock;
   close(): Promise<void>;
 }
 
-export async function startReservationHarness(): Promise<ReservationHarness> {
+export async function startReservationHarness(
+  options: HarnessOptions = {},
+): Promise<ReservationHarness> {
+  // Read before the overrides below touch REDIS_URL: the inspection client must
+  // reach the real container even in the suite that points the application at a
+  // closed port to prove fail open.
+  const containerRedisUrl = getTestRedisUrl();
+
+  // Patched before the module is compiled: ConfigService parses the environment
+  // once, in its field initialiser, so an override applied later is invisible.
+  const overrides: Record<string, string | undefined> = {
+    LOCK_STRATEGY: options.lockStrategy,
+    REDIS_URL: options.redisUrl,
+    RESERVATION_TTL_SECONDS:
+      options.ttlSeconds === undefined ? undefined : String(options.ttlSeconds),
+    DATABASE_POOL_MAX: options.poolMax === undefined ? undefined : String(options.poolMax),
+  };
+  const restore = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) continue;
+    restore.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+
   const pool = new Pool({ connectionString: getTestDatabaseUrl() });
   // Testcontainers stops the database while connections may still be open, and
   // pg turns an unhandled idle-client error into a process abort. The suite is
@@ -64,6 +113,10 @@ export async function startReservationHarness(): Promise<ReservationHarness> {
   app.useGlobalFilters(new ProblemDetailsFilter(app.get(ConfigService)));
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
+
+  const redis =
+    options.lockStrategy === 'redis' ? createRedisClient(containerRedisUrl, 200, () => {}) : null;
+  if (redis) await redis.connect();
 
   const found = await db.execute<{ id: string }>(sql`
     SELECT id FROM showtimes WHERE starts_at > now() + interval '1 day'
@@ -126,9 +179,19 @@ export async function startReservationHarness(): Promise<ReservationHarness> {
         url: `/api/v1/reservations${path}`,
         headers: { 'x-session-id': session },
       }),
+    redis,
+    lock: app.get<SeatLock>(SEAT_LOCK),
     close: async () => {
       await app.close();
       await pool.end();
+      if (redis) await redis.quit();
+      // Restoring rather than deleting: a suite that ran before this one may
+      // have set the same variable, and leaking a strategy into the next file
+      // is the kind of failure that only reproduces in full runs.
+      for (const [key, value] of restore) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     },
   };
 }

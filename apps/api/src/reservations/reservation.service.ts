@@ -9,10 +9,13 @@ import type {
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { CatalogService } from '../catalog/catalog.service';
+import { SeatGeometryCache } from '../catalog/seat-geometry.cache';
 import { ConfigService } from '../config/config.service';
 import { decodeTimestampIdCursor, encodeCursor } from '../catalog/cursor';
 import { DRIZZLE, type Database, type Executor } from '../db/drizzle.module';
+import { uuidv7 } from '../db/uuid-v7';
 import { reservationSeats, reservations, seatCategories, seats } from '../db/schema';
+import { SEAT_LOCK, type SeatLock } from '../locking/seat-lock';
 import {
   InvalidStateTransitionError,
   ReservationExpiredError,
@@ -31,15 +34,63 @@ interface SeatRow {
   priceCents: number;
 }
 
+/** A seat handed back to the pool by a transaction, and the hold it belonged to. */
+interface ReleasedSeat {
+  reservationId: string;
+  showtimeId: string;
+  seatId: string;
+}
+
 @Injectable()
 export class ReservationService {
   constructor(
     @Inject(DRIZZLE) private readonly db: Database,
+    @Inject(SEAT_LOCK) private readonly seatLock: SeatLock,
     private readonly catalog: CatalogService,
+    private readonly geometry: SeatGeometryCache,
     private readonly configService: ConfigService,
   ) {}
 
   async create(sessionId: string, input: CreateReservation): Promise<Reservation> {
+    // Minted here, not by the column default: the lock's value has to exist
+    // before the row does, or the release cannot check who owns the key.
+    const reservationId = uuidv7();
+
+    // Before the transaction, and this is the entire point of the sub-project.
+    // A loser answers 409 in one round-trip without taking a connection from
+    // the pool and without opening a transaction that would then block inside
+    // ON CONFLICT until the winner commits.
+    const lost = await this.seatLock.acquire(input.showtimeId, input.seatIds, reservationId);
+    if (lost.length > 0) {
+      throw new SeatsUnavailableError(await this.geometry.labels(input.showtimeId, lost));
+    }
+
+    let outcome: { reservation: Reservation; released: ReleasedSeat[] };
+    try {
+      outcome = await this.hold(sessionId, input, reservationId);
+    } catch (error) {
+      // The database refused, so we do not hold these seats and must not keep
+      // their keys: a lock outliving the request it belongs to blocks a seat
+      // nobody is holding, for the whole TTL. This also covers the seats the
+      // lock took before the transaction knew they were in the wrong hall.
+      await this.seatLock.release(input.showtimeId, input.seatIds, reservationId);
+      throw error;
+    }
+
+    // The lazy expiry inside the transaction handed other people's seats back.
+    // Their keys are theirs to lose; the ownership check in the Lua makes this
+    // safe even for the seats we have just taken over, because those keys are
+    // ours now and will not match.
+    await this.releaseLocks(outcome.released);
+    return outcome.reservation;
+  }
+
+  /** Sub-project 2's transaction, unchanged except for the supplied id. */
+  private hold(
+    sessionId: string,
+    input: CreateReservation,
+    reservationId: string,
+  ): Promise<{ reservation: Reservation; released: ReleasedSeat[] }> {
     return this.db.transaction(async (tx) => {
       const showtime = await this.catalog.getShowtime(input.showtimeId, tx);
 
@@ -61,7 +112,7 @@ export class ReservationService {
         throw new SeatsNotInHallError(input.seatIds.filter((id) => !found.has(id)));
       }
 
-      await this.releaseStaleHolds(tx, input.showtimeId, input.seatIds);
+      const released = await this.releaseStaleHolds(tx, input.showtimeId, input.seatIds);
 
       const totalPriceCents = seatRows.reduce((sum, row) => sum + row.priceCents, 0);
       const ttl = this.configService.config.reservationTtlSeconds;
@@ -69,6 +120,7 @@ export class ReservationService {
       const [reservation] = await tx
         .insert(reservations)
         .values({
+          id: reservationId,
           showtimeId: input.showtimeId,
           sessionId,
           status: 'PENDING',
@@ -102,34 +154,69 @@ export class ReservationService {
 
       if (won.length !== ordered.length) {
         const kept = new Set(won.map((row) => row.seatId));
-        // Rolling back discards the rows we did win, so the loser leaves no
-        // partial hold behind.
+        // The index had the last word: the lock was absent or stale, and this is
+        // exactly the case that makes a flushed Redis cost a transaction rather
+        // than a double booking. Rolling back discards the rows we did win, so
+        // the loser leaves no partial hold behind.
         throw new SeatsUnavailableError(
           ordered
             .filter((row) => !kept.has(row.id))
-            .map((row) => ({ seatId: row.id, label: `${row.rowLabel}${row.seatNumber}` })),
+            .map((row) => ({ seatId: row.id, label: `${row.rowLabel}${String(row.seatNumber)}` })),
         );
       }
 
       return {
-        id: reservation!.id,
-        showtimeId: input.showtimeId,
-        status: 'PENDING',
-        totalPriceCents,
-        expiresAt: reservation!.expiresAt.toISOString(),
-        createdAt: reservation!.createdAt.toISOString(),
-        // `seatRows`, not the id-sorted `ordered`: insertion order exists to
-        // avoid deadlocks, while the response is read by a human and must match
-        // the row-then-number order `get` and `list` return.
-        seats: seatRows.map((row) => ({
-          seatId: row.id,
-          rowLabel: row.rowLabel,
-          seatNumber: row.seatNumber,
-          category: row.category,
-          priceCents: row.priceCents,
-        })),
+        released,
+        reservation: {
+          id: reservation!.id,
+          showtimeId: input.showtimeId,
+          status: 'PENDING' as const,
+          totalPriceCents,
+          expiresAt: reservation!.expiresAt.toISOString(),
+          createdAt: reservation!.createdAt.toISOString(),
+          // `seatRows`, not the id-sorted `ordered`: insertion order exists to
+          // avoid deadlocks, while the response is read by a human and must
+          // match the row-then-number order `get` and `list` return.
+          seats: seatRows.map((row) => ({
+            seatId: row.id,
+            rowLabel: row.rowLabel,
+            seatNumber: row.seatNumber,
+            category: row.category,
+            priceCents: row.priceCents,
+          })),
+        },
       };
     });
+  }
+
+  /**
+   * Locks are dropped after the commit, never inside the transaction. A
+   * transaction can roll back; a released lock cannot be un-released, and
+   * dropping one for a seat that is still held is how a double booking would
+   * finally become possible.
+   */
+  private async releaseLocks(rows: ReleasedSeat[]): Promise<void> {
+    if (rows.length === 0) return;
+
+    // Grouped by owner because the Lua compares one value against every key, so
+    // a batch may only ever carry a single reservation's seats.
+    const groups = new Map<string, ReleasedSeat[]>();
+    for (const row of rows) {
+      const key = `${row.showtimeId}:${row.reservationId}`;
+      const group = groups.get(key);
+      if (group) group.push(row);
+      else groups.set(key, [row]);
+    }
+
+    await Promise.all(
+      [...groups.values()].map((group) =>
+        this.seatLock.release(
+          group[0]!.showtimeId,
+          group.map((row) => row.seatId),
+          group[0]!.reservationId,
+        ),
+      ),
+    );
   }
 
   async get(sessionId: string, id: string, executor: Executor = this.db): Promise<Reservation> {
@@ -338,7 +425,7 @@ export class ReservationService {
     executor: Executor,
     showtimeId: string,
     seatIds: string[],
-  ): Promise<void> {
+  ): Promise<ReleasedSeat[]> {
     const stale = await executor
       .selectDistinct({ id: reservations.id })
       .from(reservations)
@@ -353,7 +440,7 @@ export class ReservationService {
         ),
       );
 
-    if (stale.length === 0) return;
+    if (stale.length === 0) return [];
     const ids = stale.map((row) => row.id);
 
     await executor
@@ -361,11 +448,14 @@ export class ReservationService {
       .set({ status: 'EXPIRED', updatedAt: sql`now()` })
       .where(and(inArray(reservations.id, ids), eq(reservations.status, 'PENDING')));
 
-    await executor
+    return executor
       .update(reservationSeats)
       .set({ releasedAt: sql`now()` })
-      .where(
-        and(inArray(reservationSeats.reservationId, ids), isNull(reservationSeats.releasedAt)),
-      );
+      .where(and(inArray(reservationSeats.reservationId, ids), isNull(reservationSeats.releasedAt)))
+      .returning({
+        reservationId: reservationSeats.reservationId,
+        showtimeId: reservationSeats.showtimeId,
+        seatId: reservationSeats.seatId,
+      });
   }
 }
