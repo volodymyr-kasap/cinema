@@ -37,4 +37,13 @@ describe('request correlation', () => {
     expect(response.headers['x-request-id']).toEqual(expect.any(String));
     expect(String(response.headers['x-request-id']).length).toBeGreaterThan(0);
   });
+
+  // Which replica answered. Without this the load experiment cannot tell a
+  // balanced stack from one nginx resolved once at startup (spec §6).
+  it('names the instance that served the request', async () => {
+    const response = await app.inject({ method: 'GET', url: '/health' });
+
+    expect(response.headers['x-instance-id']).toEqual(expect.any(String));
+    expect(String(response.headers['x-instance-id']).length).toBeGreaterThan(0);
+  });
 });

@@ -6,6 +6,7 @@ import type { FastifyRequest } from 'fastify';
 import pino, { type Logger } from 'pino';
 
 import type { AppConfig } from '../config/env';
+import { INSTANCE_ID } from './instance';
 import { currentRequestId, requestContext } from './request-context';
 
 export function createLogger(config: AppConfig): Logger {
@@ -32,6 +33,7 @@ export function registerCorrelation(app: NestFastifyApplication): void {
 
   instance.addHook('onRequest', (request: FastifyRequest, reply, done) => {
     void reply.header('x-request-id', request.id);
+    void reply.header('x-instance-id', INSTANCE_ID);
     requestContext.run({ requestId: String(request.id) }, done);
   });
 }

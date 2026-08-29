@@ -1,0 +1,13 @@
+# The pre-phase-3 shape: one API on a published port, for day-to-day work where
+# a fixed http://localhost:3000 and readable logs beat a balanced cluster.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.single-api.yml up
+#
+# The scaled stack in docker-compose.yml is what the section 25 experiment runs
+# against; this override exists so nobody is tempted to edit that file back.
+services:
+  api:
+    deploy:
+      replicas: 1
+    ports:
+      - '3000:3000'

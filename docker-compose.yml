@@ -19,6 +19,19 @@ services:
       # the mount as unused. See docker-library/postgres#1259.
       - postgres-data:/var/lib/postgresql
 
+  # No volume, deliberately: the locks are advisory and the whole design says a
+  # cold Redis must be survivable, so persisting them would preserve state that
+  # is by definition disposable.
+  redis:
+    image: redis:8-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
   # Migrations run as their own step, not from the app bootstrap: with more than
   # one API replica, parallel bootstraps would race each other over DDL.
   migrate:
@@ -54,11 +67,22 @@ services:
       PORT: '3000'
       DATABASE_URL: postgres://cinema:cinema@postgres:5432/cinema
       LOG_LEVEL: info
-    ports:
-      - '3000:3000'
+      # REDIS_URL is set unconditionally while LOCK_STRATEGY defaults to `db`:
+      # the variable is harmless when unused, and switching the whole stack to
+      # the other strategy is then one environment variable rather than an edit.
+      LOCK_STRATEGY: ${LOCK_STRATEGY:-db}
+      REDIS_URL: redis://redis:6379
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+    # No published port: Compose will not map a fixed host port onto a scaled
+    # service. Reach the API through nginx at http://localhost:8080/api/, or use
+    # docker-compose.single-api.yml for the one-instance shape.
+    deploy:
+      replicas: ${API_REPLICAS:-3}
     depends_on:
       seed:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         [

@@ -18,8 +18,16 @@ docker compose up --build
 ```
 
 - SPA: <http://localhost:8080>
-- API: <http://localhost:3000/api/v1/movies>
-- OpenAPI: <http://localhost:3000/api/docs>
+- API: <http://localhost:8080/api/v1/movies>
+- OpenAPI: <http://localhost:8080/api/docs>
+
+The API runs as three replicas behind the same nginx that serves the SPA
+(`API_REPLICAS` changes the count), so it has no published port of its own. For
+day-to-day work, one instance on the familiar port:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.single-api.yml up
+```
 
 Migrations and the seed run as their own one-shot compose services before the
 API starts.
