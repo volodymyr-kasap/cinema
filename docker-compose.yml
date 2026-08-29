@@ -105,5 +105,20 @@ services:
       api:
         condition: service_healthy
 
+  # Inside the stack's network, and pointed at nginx: a generator on the host
+  # loopback would compete with the browser and the dev server for the same
+  # sockets, and would measure the port mapping as well as the API.
+  k6:
+    image: grafana/k6:latest
+    profiles: ['load']
+    volumes:
+      - ./load:/scripts:ro
+    environment:
+      BASE_URL: http://web
+      API_REPLICAS: ${API_REPLICAS:-3}
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres-data:

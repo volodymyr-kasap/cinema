@@ -21,6 +21,9 @@
     "dev:web": "npm run dev -w @cinema/web",
     "db:migrate": "npm run db:migrate -w @cinema/api",
     "db:seed": "npm run db:seed -w @cinema/api",
+    "load:reset": "bash load/reset.sh",
+    "load:correctness": "bash load/correctness.sh",
+    "load:performance": "bash load/performance.sh",
     "prepare": "husky"
   },
   "lint-staged": {

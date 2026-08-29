@@ -15,3 +15,4 @@ test-results/
 apps/api/test/.database-url
 apps/api/test/.redis-url
 apps/web/dist/
+load/results/
