@@ -14,7 +14,7 @@ import { ConfigService } from '../config/config.service';
 import { decodeTimestampIdCursor, encodeCursor } from '../catalog/cursor';
 import { DRIZZLE, type Database, type Executor } from '../db/drizzle.module';
 import { uuidv7 } from '../db/uuid-v7';
-import { reservationSeats, reservations, seatCategories, seats } from '../db/schema';
+import { reservationSeats, reservations, seatCategories, seats, showtimes } from '../db/schema';
 import { SEAT_LOCK, type SeatLock } from '../locking/seat-lock';
 import {
   InvalidStateTransitionError,
@@ -268,8 +268,7 @@ export class ReservationService {
       const row = await this.lockOwned(tx, sessionId, id);
 
       if (row.status === 'PENDING' && row.expired) {
-        await this.expire(tx, id);
-        return null;
+        return { expired: true as const, released: await this.expire(tx, id) };
       }
       if (!canTransition(row.status, 'CONFIRMED')) {
         throw new InvalidStateTransitionError(row.status, 'CONFIRMED');
@@ -280,24 +279,45 @@ export class ReservationService {
         .set({ status: 'CONFIRMED', confirmedAt: sql`now()`, updatedAt: sql`now()` })
         .where(eq(reservations.id, id));
 
-      return this.get(sessionId, id, tx);
+      const reservation = await this.get(sessionId, id, tx);
+      // Read inside the transaction so the extension cannot be computed from a
+      // showtime that was rescheduled between the commit and the retain.
+      const [showtime] = await tx
+        .select({ startsAt: showtimes.startsAt })
+        .from(showtimes)
+        .where(eq(showtimes.id, reservation.showtimeId))
+        .limit(1);
+
+      return { expired: false as const, reservation, startsAt: showtime!.startsAt };
     });
 
-    if (!outcome) throw new ReservationExpiredError(id);
-    return outcome;
+    if (outcome.expired) {
+      // The seats went back to the pool inside the transaction; their keys have
+      // to follow, or they block seats nobody holds until the TTL runs out.
+      await this.releaseLocks(outcome.released);
+      throw new ReservationExpiredError(id);
+    }
+
+    // Not release: a confirmed seat is never free again, and dropping the key
+    // would invite the next request to take the lock, open a transaction and be
+    // refused by the index -- exactly the work the lock exists to avoid.
+    await this.seatLock.retain(
+      outcome.reservation.showtimeId,
+      outcome.reservation.seats.map((seat) => seat.seatId),
+      id,
+      outcome.startsAt,
+    );
+    return outcome.reservation;
   }
 
   async cancel(sessionId: string, id: string): Promise<void> {
-    await this.db.transaction(async (tx) => {
+    const released = await this.db.transaction(async (tx) => {
       const row = await this.lockOwned(tx, sessionId, id);
 
       // Cancelling is idempotent. The caller asked for the seats to be released;
       // for a reservation that already ended, they are.
-      if (row.status === 'CANCELLED' || row.status === 'EXPIRED') return;
-      if (row.status === 'PENDING' && row.expired) {
-        await this.expire(tx, id);
-        return;
-      }
+      if (row.status === 'CANCELLED' || row.status === 'EXPIRED') return [];
+      if (row.status === 'PENDING' && row.expired) return this.expire(tx, id);
       if (!canTransition(row.status, 'CANCELLED')) {
         throw new InvalidStateTransitionError(row.status, 'CANCELLED');
       }
@@ -306,8 +326,10 @@ export class ReservationService {
         .update(reservations)
         .set({ status: 'CANCELLED', cancelledAt: sql`now()`, updatedAt: sql`now()` })
         .where(eq(reservations.id, id));
-      await this.releaseSeatsOf(tx, id);
+      return this.releaseSeatsOf(tx, id);
     });
+
+    await this.releaseLocks(released);
   }
 
   /**
@@ -334,21 +356,26 @@ export class ReservationService {
     return { status: row.status as Reservation['status'], expired: row.expired };
   }
 
-  private async expire(executor: Executor, id: string): Promise<void> {
+  private async expire(executor: Executor, id: string): Promise<ReleasedSeat[]> {
     await executor
       .update(reservations)
       .set({ status: 'EXPIRED', updatedAt: sql`now()` })
       .where(eq(reservations.id, id));
-    await this.releaseSeatsOf(executor, id);
+    return this.releaseSeatsOf(executor, id);
   }
 
-  private async releaseSeatsOf(executor: Executor, reservationId: string): Promise<void> {
-    await executor
+  private releaseSeatsOf(executor: Executor, reservationId: string): Promise<ReleasedSeat[]> {
+    return executor
       .update(reservationSeats)
       .set({ releasedAt: sql`now()` })
       .where(
         and(eq(reservationSeats.reservationId, reservationId), isNull(reservationSeats.releasedAt)),
-      );
+      )
+      .returning({
+        reservationId: reservationSeats.reservationId,
+        showtimeId: reservationSeats.showtimeId,
+        seatId: reservationSeats.seatId,
+      });
   }
 
   /** One reservation row plus its seats, in the shape the contract promises. */

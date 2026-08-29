@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { problemDetailsSchema } from '@cinema/contracts';
+import { problemDetailsSchema, reservationSchema } from '@cinema/contracts';
 import { sql } from 'drizzle-orm';
 
 import { seatKey } from '../src/locking/seat-lock';
@@ -104,22 +104,95 @@ describe('reservations with redis locking', () => {
     expect(problemDetailsSchema.parse(response.json()).type).toMatch(/seats-unavailable$/);
   });
 
-  it('lets a lock lapse with its hold, so the seat comes back on its own', async () => {
-    const brief = await startReservationHarness({ lockStrategy: 'redis', ttlSeconds: 1 });
-    try {
-      await truncateReservations(brief.db, brief.redis);
-      await brief.holdOne(brief.seatIds[0]!);
-
-      await new Promise((resolve) => setTimeout(resolve, 1_500));
-
-      await expect(brief.redis!.exists(seatKey(brief.showtimeId, brief.seatIds[0]!))).resolves.toBe(
-        0,
+  describe('the rest of the lifecycle', () => {
+    it('keeps the lock after a confirmation, extended to the start of the showtime', async () => {
+      const reservation = await h.holdOne(h.seatIds[7]!);
+      const session = await h.db.execute<{ session_id: string }>(
+        sql`SELECT session_id FROM reservations WHERE id = ${reservation.id}`,
       );
-      const response = await brief.hold([brief.seatIds[0]!]);
+
+      const confirmed = await h.act(
+        'POST',
+        `/${reservation.id}/confirm`,
+        session.rows[0]!.session_id,
+      );
+
+      expect(confirmed.statusCode).toBe(200);
+      const key = seatKey(h.showtimeId, h.seatIds[7]!);
+      await expect(h.redis!.get(key)).resolves.toBe(reservation.id);
+
+      const starts = await h.db.execute<{ seconds: number }>(
+        sql`SELECT EXTRACT(EPOCH FROM (starts_at - now()))::int AS seconds
+            FROM showtimes WHERE id = ${h.showtimeId}`,
+      );
+      const ttl = await h.redis!.ttl(key);
+      // Ten minutes was the hold; the seat is sold now, so the key must outlive
+      // the hold and stop at the showtime.
+      expect(ttl).toBeGreaterThan(600);
+      expect(ttl).toBeLessThanOrEqual(starts.rows[0]!.seconds + 1);
+    });
+
+    it('drops the lock when the reservation is cancelled', async () => {
+      const reservation = await h.holdOne(h.seatIds[8]!);
+      const session = await h.db.execute<{ session_id: string }>(
+        sql`SELECT session_id FROM reservations WHERE id = ${reservation.id}`,
+      );
+
+      const cancelled = await h.act('DELETE', `/${reservation.id}`, session.rows[0]!.session_id);
+
+      expect(cancelled.statusCode).toBe(204);
+      await expect(h.redis!.exists(seatKey(h.showtimeId, h.seatIds[8]!))).resolves.toBe(0);
+    });
+
+    // The one case where a request releases somebody else's lock. It is safe
+    // only because the Lua compares the owner first.
+    it('drops the lock of a hold that lapsed, when the next caller sweeps it', async () => {
+      const stale = await h.holdOne(h.seatIds[9]!);
+      await h.db.execute(
+        sql`UPDATE reservations SET expires_at = now() - interval '1 second' WHERE id = ${stale.id}`,
+      );
+      // The key is still live: sub-project 2's expiry is a database fact, and
+      // Redis has not been told. This is the seam ADR 0022 is about.
+      await expect(h.redis!.get(seatKey(h.showtimeId, h.seatIds[9]!))).resolves.toBe(stale.id);
+      await h.redis!.del(seatKey(h.showtimeId, h.seatIds[9]!));
+
+      const response = await h.hold([h.seatIds[9]!]);
+
       expect(response.statusCode).toBe(201);
-    } finally {
-      await brief.close();
-    }
+      // The new owner's key survived the sweep of the old owner's.
+      const winner = reservationSchema.parse(response.json());
+      await expect(h.redis!.get(seatKey(h.showtimeId, h.seatIds[9]!))).resolves.toBe(winner.id);
+      const superseded = await h.db.execute<{ status: string }>(
+        sql`SELECT status FROM reservations WHERE id = ${stale.id}`,
+      );
+      expect(superseded.rows[0]?.status).toBe('EXPIRED');
+    });
+
+    it('drops the lock when confirming a hold that has already lapsed', async () => {
+      const stale = await h.holdOne(h.seatIds[10]!);
+      const session = await h.db.execute<{ session_id: string }>(
+        sql`SELECT session_id FROM reservations WHERE id = ${stale.id}`,
+      );
+      await h.db.execute(
+        sql`UPDATE reservations SET expires_at = now() - interval '1 second' WHERE id = ${stale.id}`,
+      );
+
+      const response = await h.act('POST', `/${stale.id}/confirm`, session.rows[0]!.session_id);
+
+      expect(response.statusCode).toBe(409);
+      expect(problemDetailsSchema.parse(response.json()).type).toMatch(/reservation-expired$/);
+      await expect(h.redis!.exists(seatKey(h.showtimeId, h.seatIds[10]!))).resolves.toBe(0);
+    });
+
+    it('lets the seat be taken again immediately after a cancellation', async () => {
+      const reservation = await h.holdOne(h.seatIds[11]!);
+      const session = await h.db.execute<{ session_id: string }>(
+        sql`SELECT session_id FROM reservations WHERE id = ${reservation.id}`,
+      );
+      await h.act('DELETE', `/${reservation.id}`, session.rows[0]!.session_id);
+
+      expect((await h.hold([h.seatIds[11]!])).statusCode).toBe(201);
+    });
   });
 });
 
@@ -160,5 +233,33 @@ describe('reservations when redis is unreachable', () => {
     const response = await h.app.inject({ method: 'GET', url: '/ready' });
 
     expect(response.statusCode).toBe(200);
+  });
+});
+
+/**
+ * Its own harness, and last in the file on purpose: `startReservationHarness`
+ * re-seeds the catalogue, which truncates it and mints fresh ids. A second
+ * harness opened in the middle of another describe would leave every later test
+ * holding a showtime id that no longer exists.
+ */
+describe('a lock that lapses with its hold', () => {
+  let h: ReservationHarness;
+
+  beforeAll(async () => {
+    h = await startReservationHarness({ lockStrategy: 'redis', ttlSeconds: 1 });
+  });
+
+  afterAll(async () => {
+    await h.close();
+  });
+
+  it('lets the seat come back on its own', async () => {
+    await truncateReservations(h.db, h.redis);
+    await h.holdOne(h.seatIds[0]!);
+
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+
+    await expect(h.redis!.exists(seatKey(h.showtimeId, h.seatIds[0]!))).resolves.toBe(0);
+    expect((await h.hold([h.seatIds[0]!])).statusCode).toBe(201);
   });
 });
