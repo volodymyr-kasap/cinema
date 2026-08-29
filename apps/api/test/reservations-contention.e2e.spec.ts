@@ -10,28 +10,29 @@ import { truncateReservations } from './truncate';
  *
  *   N users, one seat  ->  successful reservations = 1
  *
+ * Run once per locking strategy. The Redis path does not inherit sub-project
+ * 2's guarantees, it re-earns them: an advisory lock that changed any of these
+ * answers would be a lock that had quietly become authoritative.
+ *
  * The pool is raised above the client count on purpose. At the default of ten
  * connections, forty of fifty clients would be queuing for a connection rather
- * than racing for a seat, and the test would pass for the wrong reason.
+ * than racing for a seat, and the test would pass for the wrong reason
+ * (ADR 0015).
  */
-describe('reservations under contention', () => {
+describe.each(['db', 'redis'] as const)('reservations under contention (%s)', (lockStrategy) => {
   const CLIENTS = 50;
   let h: ReservationHarness;
 
   beforeAll(async () => {
-    // Set before the module compiles: ConfigService parses the environment once,
-    // at construction, so assigning this afterwards would have no effect.
-    process.env.DATABASE_POOL_MAX = String(CLIENTS + 10);
-    h = await startReservationHarness();
+    h = await startReservationHarness({ lockStrategy, poolMax: CLIENTS + 10 });
   });
 
   afterAll(async () => {
     await h.close();
-    delete process.env.DATABASE_POOL_MAX;
   });
 
   beforeEach(async () => {
-    await truncateReservations(h.db);
+    await truncateReservations(h.db, h.redis);
   });
 
   const race = (seats: string[], clients: number) =>
@@ -105,4 +106,45 @@ describe('reservations under contention', () => {
     expect(responses.filter((r) => r.statusCode === 201)).toHaveLength(1000);
     expect(responses.filter((r) => r.statusCode !== 201)).toHaveLength(0);
   }, 120_000);
+
+  // Ten clients per seat over a thousand seats: the shape of the section 25
+  // experiment, in miniature and in-process, so a regression is caught here
+  // rather than three tasks later in a two-minute k6 run.
+  it('sells a thousand seats exactly once each when ten clients want each of them', async () => {
+    const premiere = await h.db.execute<{ showtime_id: string }>(sql`
+      SELECT sh.id AS showtime_id FROM showtimes sh
+      JOIN halls h ON h.id = sh.hall_id
+      WHERE (SELECT count(*) FROM seats WHERE hall_id = h.id) = 1000
+        AND sh.starts_at > now() + interval '1 day'
+      ORDER BY sh.starts_at LIMIT 1
+    `);
+    const target = premiere.rows[0]!.showtime_id;
+    const all = await h.db.execute<{ id: string }>(
+      sql`SELECT se.id FROM seats se JOIN showtimes sh ON sh.hall_id = se.hall_id WHERE sh.id = ${target}`,
+    );
+
+    const attempts = all.rows.flatMap((seat) =>
+      Array.from({ length: 10 }, () =>
+        h.app.inject({
+          method: 'POST',
+          url: '/api/v1/reservations',
+          headers: { 'x-session-id': randomUUID() },
+          payload: { showtimeId: target, seatIds: [seat.id] },
+        }),
+      ),
+    );
+    const responses = await Promise.all(attempts);
+
+    expect(responses.filter((r) => r.statusCode === 201)).toHaveLength(1000);
+    expect(responses.filter((r) => r.statusCode === 409)).toHaveLength(9000);
+    expect(responses.filter((r) => r.statusCode >= 500)).toHaveLength(0);
+
+    const duplicates = await h.db.execute<{ n: string }>(sql`
+      SELECT count(*)::text AS n FROM (
+        SELECT showtime_id, seat_id FROM reservation_seats WHERE released_at IS NULL
+        GROUP BY showtime_id, seat_id HAVING count(*) > 1
+      ) d
+    `);
+    expect(duplicates.rows[0]?.n).toBe('0');
+  }, 300_000);
 });
