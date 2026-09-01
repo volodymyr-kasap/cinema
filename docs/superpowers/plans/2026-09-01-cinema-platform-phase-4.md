@@ -117,8 +117,11 @@ npm install amqplib@^2.0.1 -w @cinema/api
 Then confirm no DefinitelyTyped package came with it, and that the bundled types are present:
 
 ```bash
-node -e "console.log(require('amqplib/package.json').types)"   # expect ./index.d.ts
-grep -c '@types/amqplib' apps/api/package.json                  # expect 0
+# NOT `node -e "require('amqplib/package.json')"` — amqplib's exports map does
+# not expose ./package.json, so Node refuses it with ERR_PACKAGE_PATH_NOT_EXPORTED.
+grep '"types"' node_modules/amqplib/package.json    # expect "types": "./index.d.ts"
+ls node_modules/amqplib/index.d.ts                  # expect the file to exist
+grep -c '@types/amqplib' apps/api/package.json package-lock.json   # expect 0 for both
 ```
 
 If `@types/amqplib` appears anywhere, remove it: amqplib ships its own declarations and the two conflict.
@@ -875,6 +878,21 @@ export async function createRabbitConnection(
   options: TopologyOptions,
   onEvent: (message: string) => void,
 ): Promise<RecoveringChannelModel> {
+  // A plain connect first, purely as a reachability probe.
+  //
+  // This is not belt-and-braces. Verified against amqplib 2.0.1: `connect()`
+  // WITH a recovery block never rejects on an unreachable broker -- it retries
+  // for as long as `maxRetries` allows, and that defaults to Infinity, so
+  // awaiting it would hang boot forever against a dead broker. Without recovery
+  // it rejects in about two milliseconds. `maxRetries` does bound the initial
+  // attempt (0 rejects at 2ms, 2 at 154ms), but any budget small enough to keep
+  // boot fast is far too small to survive a real broker restart at runtime, and
+  // one option set governs both. So: probe without recovery to decide whether
+  // the broker is there, then open the connection that actually gets used with
+  // an unbounded recovery budget.
+  const probe = await connect(url);
+  await probe.close();
+
   const connection = await connect(url, {
     // `heartbeat` is deliberately not passed. In amqplib 2.0.0 a zero disables
     // heartbeats outright rather than deferring to the server, so the way to
@@ -954,7 +972,32 @@ export class RabbitModule implements OnApplicationShutdown {
 Run: `npm run typecheck -w @cinema/api`
 Expected: pass. If `connect` is reported as having no call signature accepting `recovery`, the installed amqplib is older than 1.1.0 — check `npm ls amqplib`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Verify a dead broker returns null instead of hanging**
+
+This is the whole point of the probe, so prove it rather than assuming it. From the repo root:
+
+```bash
+cat > /tmp/rabbit-probe.js <<'JS'
+const { createRabbitConnection } = require('./apps/api/dist/messaging/rabbit.module');
+const started = Date.now();
+const timer = setTimeout(() => {
+  console.log('FAIL: still pending after 5s — boot would hang');
+  process.exit(1);
+}, 5_000);
+createRabbitConnection('amqp://guest:guest@127.0.0.1:1', { reservationTtlSeconds: 600, retryDelaysMs: [1000] }, () => {})
+  .then(() => { clearTimeout(timer); console.log('FAIL: resolved against a closed port'); process.exit(1); })
+  .catch((error) => {
+    clearTimeout(timer);
+    console.log(`PASS: rejected in ${Date.now() - started}ms with ${error.code || error.message}`);
+    process.exit(0);
+  });
+JS
+npm run build -w @cinema/api && node /tmp/rabbit-probe.js
+```
+
+Expected: `PASS: rejected in <100ms with ECONNREFUSED`. A hang here means the probe was dropped or reordered after the recovering connect, and Task 4's fail-open suite would hang too.
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add apps/api/src/messaging/rabbit.module.ts
