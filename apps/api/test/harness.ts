@@ -7,6 +7,7 @@ import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainer
 declare global {
   var __PG_CONTAINER__: StartedPostgreSqlContainer | undefined;
   var __REDIS_CONTAINER__: StartedTestContainer | undefined;
+  var __RABBIT_CONTAINER__: StartedTestContainer | undefined;
 }
 
 export async function startTestDatabase(): Promise<StartedPostgreSqlContainer> {
@@ -44,5 +45,26 @@ export async function startTestRedis(): Promise<StartedTestContainer> {
 export function getTestRedisUrl(): string {
   const url = process.env.REDIS_URL;
   if (!url) throw new Error('REDIS_URL is not set; global setup did not run');
+  return url;
+}
+
+/**
+ * The management image, matching the compose stack: the plugin costs a little
+ * startup time and buys a UI to look at when a test fails in a way the
+ * assertions do not explain. Waiting on the log line rather than the port
+ * matters more here than for Redis -- the AMQP listener opens well before the
+ * broker will accept a channel, and connecting into that window fails.
+ */
+export async function startTestRabbit(): Promise<StartedTestContainer> {
+  return new GenericContainer('rabbitmq:4-management-alpine')
+    .withExposedPorts(5672)
+    .withWaitStrategy(Wait.forLogMessage('Server startup complete'))
+    .withStartupTimeout(180_000)
+    .start();
+}
+
+export function getTestRabbitUrl(): string {
+  const url = process.env.RABBITMQ_URL;
+  if (!url) throw new Error('RABBITMQ_URL is not set; global setup did not run');
   return url;
 }
