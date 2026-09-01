@@ -1122,6 +1122,13 @@ In `apps/api/test/reservation-harness.ts`, add to `HarnessOptions`:
   expiryMode?: 'lazy' | 'queue';
   /** Overrides RABBITMQ_URL. Pointing it at a closed port is how fail open is proved. */
   rabbitmqUrl?: string;
+  /**
+   * Overrides the retry ladder. Queue arguments are part of a queue's identity,
+   * so a suite that runs this harness beside a worker harness MUST give both the
+   * same ladder -- otherwise the second one to declare the retry queues gets
+   * PRECONDITION_FAILED (406) and loses its channel.
+   */
+  retryDelaysMs?: number[];
 ```
 
 Add to the `overrides` record, beside the existing entries:
@@ -1129,6 +1136,7 @@ Add to the `overrides` record, beside the existing entries:
 ```ts
     RESERVATION_EXPIRY_MODE: options.expiryMode,
     RABBITMQ_URL: options.rabbitmqUrl,
+    RABBITMQ_RETRY_DELAYS_MS: options.retryDelaysMs?.join(','),
 ```
 
 Add to `ReservationHarness`:
@@ -1745,10 +1753,14 @@ describe('the expiry consumer', () => {
     await deleteTopology(connection, 3);
     // `queue` mode, because the last case in this suite rides the real
     // wait -> work path the API publishes into.
+    // Both harnesses declare the same queues, so both MUST be given the same
+    // TTL and the same ladder: queue arguments are part of a queue's identity,
+    // and a mismatch is PRECONDITION_FAILED on whichever declares second.
     api = await startReservationHarness({
       lockStrategy: 'redis',
       ttlSeconds: 1,
       expiryMode: 'queue',
+      retryDelaysMs: [100, 200, 400],
     });
     worker = await startWorkerHarness({ ttlSeconds: 1, retryDelaysMs: [100, 200, 400] });
   });
