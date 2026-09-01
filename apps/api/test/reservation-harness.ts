@@ -45,9 +45,15 @@ export interface ReservationHarness {
   seatIds: string[];
   /**
    * A showtime that has already started, and one of its seats. The seeded
-   * catalogue is a fixed window of future dates, so a started showtime has to be
-   * made here — anchored to `now()` rather than a literal date, or this fixture
-   * would quietly stop being in the past as the calendar moves.
+   * catalogue does not contain one, so it is made here.
+   *
+   * It is placed five hours before `least(now(), min(starts_at))` — earlier than
+   * every seeded showtime AND in the past — because the hall is shared with the
+   * catalogue and `showtimes_no_overlap` is a GiST exclusion constraint, not a
+   * suggestion. Anchoring on `now()` alone was the original bug: `SEED_START_DATE`
+   * is the literal 2026-09-01, so the day the calendar reached the seeded window
+   * the fixture began landing inside a seeded showtime and every suite that
+   * builds this harness failed on the insert.
    */
   pastShowtimeId: string;
   pastSeatId: string;
@@ -134,9 +140,11 @@ export async function startReservationHarness(
 
   const started = await db.execute<{ id: string }>(sql`
     INSERT INTO showtimes (movie_id, hall_id, starts_at, ends_at, base_price_cents, language, format)
-    SELECT sh.movie_id, sh.hall_id, now() - interval '3 hours', now() - interval '1 hour',
+    SELECT sh.movie_id, sh.hall_id, anchor.t - interval '5 hours', anchor.t - interval '3 hours',
            sh.base_price_cents, sh.language, sh.format
-    FROM showtimes sh WHERE sh.id = ${showtimeId}
+    FROM showtimes sh
+    CROSS JOIN (SELECT least(now(), min(starts_at)) AS t FROM showtimes) anchor
+    WHERE sh.id = ${showtimeId}
     RETURNING id
   `);
   const pastShowtimeId = started.rows[0]?.id;
