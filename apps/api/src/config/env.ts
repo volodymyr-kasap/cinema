@@ -24,15 +24,51 @@ const envObject = z.object({
   // The threshold past which a slow Redis is treated as a dead one and the
   // request falls through to the database path.
   REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(1).max(60_000).default(200),
+  // `lazy` by default, deliberately: a new subsystem does not switch itself on,
+  // and phase 3's measured baseline must stay reproducible on this commit
+  // (the same argument as ADR 0017 for LOCK_STRATEGY).
+  RESERVATION_EXPIRY_MODE: z.enum(['lazy', 'queue']).default('lazy'),
+  // No default, for the reason REDIS_URL has none: a default makes the refine
+  // below vacuous, and refusing to boot beats answering 500 to every request.
+  RABBITMQ_URL: z.url({ protocol: /^amqps?$/ }).optional(),
+  // Unacknowledged messages per channel. Bounds how much work one worker takes
+  // on before it has finished any of it.
+  RABBITMQ_PREFETCH: z.coerce.number().int().min(1).max(10_000).default(20),
+  // Past this, a slow broker is treated as a dead one and the hold is answered
+  // without a message. The hold is already committed; only the message is lost.
+  RABBITMQ_PUBLISH_TIMEOUT_MS: z.coerce.number().int().min(1).max(60_000).default(200),
+  // One queue per tier, each with a fixed TTL. The length of this list is the
+  // number of retries; the values are the backoff (spec §3).
+  RABBITMQ_RETRY_DELAYS_MS: z
+    .string()
+    .default('5000,30000,120000')
+    .transform((value, ctx) => {
+      const delays = value
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0)
+        .map(Number);
+
+      if (delays.length === 0 || delays.some((ms) => !Number.isInteger(ms) || ms < 1)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'must be a comma-separated list of positive integers, e.g. 5000,30000,120000',
+        });
+        return z.NEVER;
+      }
+      return delays;
+    }),
 });
 
-const envSchema = envObject.refine(
-  (env) => env.LOCK_STRATEGY !== 'redis' || env.REDIS_URL !== undefined,
-  {
+const envSchema = envObject
+  .refine((env) => env.LOCK_STRATEGY !== 'redis' || env.REDIS_URL !== undefined, {
     path: ['REDIS_URL'],
     error: 'REDIS_URL is required when LOCK_STRATEGY is redis',
-  },
-);
+  })
+  .refine((env) => env.RESERVATION_EXPIRY_MODE !== 'queue' || env.RABBITMQ_URL !== undefined, {
+    path: ['RABBITMQ_URL'],
+    error: 'RABBITMQ_URL is required when RESERVATION_EXPIRY_MODE is queue',
+  });
 
 export type AppConfig = {
   nodeEnv: z.infer<typeof envObject>['NODE_ENV'];
@@ -46,6 +82,11 @@ export type AppConfig = {
   lockStrategy: z.infer<typeof envObject>['LOCK_STRATEGY'];
   redisUrl: string | undefined;
   redisCommandTimeoutMs: number;
+  reservationExpiryMode: z.infer<typeof envObject>['RESERVATION_EXPIRY_MODE'];
+  rabbitmqUrl: string | undefined;
+  rabbitmqPrefetch: number;
+  rabbitmqPublishTimeoutMs: number;
+  rabbitmqRetryDelaysMs: number[];
 };
 
 /**
@@ -71,5 +112,10 @@ export function parseEnv(source: NodeJS.ProcessEnv): AppConfig {
     lockStrategy: env.LOCK_STRATEGY,
     redisUrl: env.REDIS_URL,
     redisCommandTimeoutMs: env.REDIS_COMMAND_TIMEOUT_MS,
+    reservationExpiryMode: env.RESERVATION_EXPIRY_MODE,
+    rabbitmqUrl: env.RABBITMQ_URL,
+    rabbitmqPrefetch: env.RABBITMQ_PREFETCH,
+    rabbitmqPublishTimeoutMs: env.RABBITMQ_PUBLISH_TIMEOUT_MS,
+    rabbitmqRetryDelaysMs: env.RABBITMQ_RETRY_DELAYS_MS,
   };
 }

@@ -23,6 +23,11 @@ describe('parseEnv', () => {
       lockStrategy: 'db',
       redisUrl: undefined,
       redisCommandTimeoutMs: 200,
+      reservationExpiryMode: 'lazy',
+      rabbitmqUrl: undefined,
+      rabbitmqPrefetch: 20,
+      rabbitmqPublishTimeoutMs: 200,
+      rabbitmqRetryDelaysMs: [5_000, 30_000, 120_000],
     });
   });
 
@@ -38,6 +43,11 @@ describe('parseEnv', () => {
     expect(config.lockStrategy).toBe('db');
     expect(config.redisUrl).toBeUndefined();
     expect(config.redisCommandTimeoutMs).toBe(200);
+    expect(config.reservationExpiryMode).toBe('lazy');
+    expect(config.rabbitmqUrl).toBeUndefined();
+    expect(config.rabbitmqPrefetch).toBe(20);
+    expect(config.rabbitmqPublishTimeoutMs).toBe(200);
+    expect(config.rabbitmqRetryDelaysMs).toEqual([5_000, 30_000, 120_000]);
   });
 
   it('throws a readable error when DATABASE_URL is missing', () => {
@@ -81,5 +91,50 @@ describe('parseEnv', () => {
 
   it('rejects an unknown lock strategy', () => {
     expect(() => parseEnv({ ...valid, LOCK_STRATEGY: 'zookeeper' })).toThrow(/LOCK_STRATEGY/);
+  });
+
+  it('accepts queue mode when a broker url is supplied', () => {
+    const config = parseEnv({
+      ...valid,
+      RESERVATION_EXPIRY_MODE: 'queue',
+      RABBITMQ_URL: 'amqp://guest:guest@localhost:5672',
+    });
+    expect(config.reservationExpiryMode).toBe('queue');
+    expect(config.rabbitmqUrl).toBe('amqp://guest:guest@localhost:5672');
+  });
+
+  it('refuses queue mode without a broker url', () => {
+    // The same rule as LOCK_STRATEGY/REDIS_URL: a default would make this
+    // unreachable, so RABBITMQ_URL deliberately has none (spec §7).
+    expect(() => parseEnv({ ...valid, RESERVATION_EXPIRY_MODE: 'queue' })).toThrow(/RABBITMQ_URL/);
+  });
+
+  it('rejects a broker url that is not amqp', () => {
+    expect(() =>
+      parseEnv({
+        ...valid,
+        RESERVATION_EXPIRY_MODE: 'queue',
+        RABBITMQ_URL: 'http://localhost:5672',
+      }),
+    ).toThrow(/RABBITMQ_URL/);
+  });
+
+  it('parses the retry ladder into milliseconds', () => {
+    const config = parseEnv({ ...valid, RABBITMQ_RETRY_DELAYS_MS: '100, 200,400' });
+    expect(config.rabbitmqRetryDelaysMs).toEqual([100, 200, 400]);
+  });
+
+  it('rejects a retry ladder that is not positive integers', () => {
+    expect(() => parseEnv({ ...valid, RABBITMQ_RETRY_DELAYS_MS: '100,nope' })).toThrow(
+      /RABBITMQ_RETRY_DELAYS_MS/,
+    );
+  });
+
+  it('rejects an empty retry ladder', () => {
+    // Zero tiers would mean the first failure dead-letters, which is a decision
+    // nobody made -- it must be spelled, not fallen into.
+    expect(() => parseEnv({ ...valid, RABBITMQ_RETRY_DELAYS_MS: '' })).toThrow(
+      /RABBITMQ_RETRY_DELAYS_MS/,
+    );
   });
 });
