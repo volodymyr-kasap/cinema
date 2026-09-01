@@ -34,6 +34,13 @@ export async function createRabbitConnection(
   // the broker is there, then open the connection that actually gets used with
   // an unbounded recovery budget.
   const probe = await connect(url);
+  // close() is not instantaneous -- it sends ConnectionClose and awaits
+  // ConnectionCloseOk from the broker, a real network round trip. If the
+  // socket errors during that window, amqplib emits 'error' on this object,
+  // and an EventEmitter 'error' with no listener aborts the process. A probe
+  // failure is exactly the kind of broker flakiness this module exists to
+  // survive, so it gets the same listener the real connection gets below.
+  probe.on('error', (error: Error) => onEvent(`probe error: ${error.message}`));
   await probe.close();
 
   const connection = await connect(url, {
