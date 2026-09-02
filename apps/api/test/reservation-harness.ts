@@ -62,10 +62,11 @@ export interface ReservationHarness {
    * It is placed five hours before `least(now(), min(starts_at))` — earlier than
    * every seeded showtime AND in the past — because the hall is shared with the
    * catalogue and `showtimes_no_overlap` is a GiST exclusion constraint, not a
-   * suggestion. Anchoring on `now()` alone was the original bug: `SEED_START_DATE`
-   * is the literal 2026-09-01, so the day the calendar reached the seeded window
-   * the fixture began landing inside a seeded showtime and every suite that
-   * builds this harness failed on the insert.
+   * suggestion. Anchoring on `now()` alone was the original bug: the seed window
+   * was a literal 2026-09-01, so the day the calendar reached it the fixture
+   * began landing inside a seeded showtime and every suite that builds this
+   * harness failed on the insert. `seedStartDate()` now rolls, but this stays
+   * anchored on the earlier of the two so it cannot depend on that.
    */
   pastShowtimeId: string;
   pastSeatId: string;

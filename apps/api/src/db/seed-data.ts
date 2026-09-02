@@ -88,7 +88,22 @@ export const SLOTS = [
 export const FORMATS = ['TWO_D', 'THREE_D', 'IMAX'] as const;
 export const LANGUAGES = ['uk', 'en', 'pl'] as const;
 
-export const SEED_START_DATE = { year: 2026, month: 9, day: 1 };
+/**
+ * A rolling window anchored on tomorrow, not a literal date.
+ *
+ * This was `{ year: 2026, month: 9, day: 1 }`, written as "a window of future
+ * dates" — true only until the calendar reached it. On 2026-09-02 the seeded
+ * catalogue covered the present and the past, so every hold against the first
+ * showtimes the API returns was refused with SHOWTIME_ALREADY_STARTED, taking
+ * the Playwright smoke test with it. Anchoring on tomorrow means the whole
+ * window is in the future whatever the date and whatever the hour, since the
+ * earliest slot of day 0 is still a day away.
+ */
+export function seedStartDate(): { year: number; month: number; day: number } {
+  const anchor = new Date();
+  anchor.setDate(anchor.getDate() + 1);
+  return { year: anchor.getFullYear(), month: anchor.getMonth() + 1, day: anchor.getDate() };
+}
 export const SEED_DAYS = 14;
 export const CLEANING_MINUTES = 30;
 export const BASE_PRICE_CENTS = 15_000;

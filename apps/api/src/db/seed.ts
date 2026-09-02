@@ -14,7 +14,7 @@ import {
   MOVIES,
   SEAT_CATEGORIES,
   SEED_DAYS,
-  SEED_START_DATE,
+  seedStartDate,
   SLOTS,
   USERS,
   categoryForRow,
@@ -94,15 +94,18 @@ export async function seedDatabase(db: Database): Promise<void> {
       await insertInChunks(seatRows, (chunk) => db.insert(seats).values(chunk));
 
       const showtimeRows = [];
+      // Read once, so a seed run that straddles midnight cannot anchor its
+      // first days on one date and its last on another.
+      const seedStart = seedStartDate();
       for (let day = 0; day < SEED_DAYS; day += 1) {
         for (const slot of SLOTS) {
           const movie = movieRows[showtimeCounter % movieRows.length];
           if (!movie) throw new Error('no movies seeded');
 
           const startsAt = zonedToUtc(
-            SEED_START_DATE.year,
-            SEED_START_DATE.month,
-            SEED_START_DATE.day + day,
+            seedStart.year,
+            seedStart.month,
+            seedStart.day + day,
             slot.hour,
             slot.minute,
             cinemaSpec.timezone,
