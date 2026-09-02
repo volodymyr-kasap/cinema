@@ -41,7 +41,26 @@ export async function createRabbitConnection(
   // failure is exactly the kind of broker flakiness this module exists to
   // survive, so it gets the same listener the real connection gets below.
   probe.on('error', (error: Error) => onEvent(`probe error: ${error.message}`));
-  await probe.close();
+
+  // The probe asserts the topology too, rather than only proving the socket
+  // opens. A reachable broker holding INCOMPATIBLE queues -- the config-drift
+  // case ADR 0024 warns about, such as a redeploy with a changed
+  // RESERVATION_TTL_SECONDS against queues that already exist -- fails `setup`
+  // with a 406. Recovery catches that, emits connect-failed and reschedules for
+  // ever, so the `connect` below would neither resolve nor reject and boot
+  // would hang for good: the same failure the probe exists to prevent, reached
+  // by a different route. Asserting here turns it into a rejection, which the
+  // caller fails open on exactly as it does for a broker that is not there.
+  try {
+    const channel = await probe.createChannel();
+    // A 406 closes the channel from the broker's side and emits 'error' here;
+    // unlistened, that aborts the process before the rejection can be handled.
+    channel.on('error', (error: Error) => onEvent(`probe channel error: ${error.message}`));
+    await assertTopology(channel, options);
+    await channel.close();
+  } finally {
+    await probe.close().catch(() => {});
+  }
 
   const connection = await connect(url, {
     // `heartbeat` is deliberately not passed. In amqplib 2.0.0 a zero disables
@@ -95,9 +114,12 @@ export async function createRabbitConnection(
             (message) => logger.warn(message),
           );
         } catch (error) {
-          // A broker that is down at boot must not stop the process: holds are
-          // fully correct without it, and lazy expiry still settles them.
-          logger.warn(`broker unreachable at startup, running without it: ${String(error)}`);
+          // No usable broker at boot -- unreachable, or reachable but holding a
+          // topology we cannot assert -- must not stop the process: holds are
+          // fully correct without it, and lazy expiry still settles them. Loud
+          // rather than silent, because the alternative reading of this line is
+          // a working system.
+          logger.warn(`no usable broker at startup, running without it: ${String(error)}`);
           return null;
         }
       },

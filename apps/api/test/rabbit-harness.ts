@@ -201,3 +201,25 @@ export async function startWorkerHarness(
     },
   };
 }
+
+/**
+ * Closes every client connection from the broker's side, the way a broker
+ * restart or a network partition would. Restarting the container instead would
+ * remap its ports and invalidate every URL the suite is holding.
+ */
+export async function killBrokerConnections(managementUrl: string): Promise<number> {
+  const base = new URL(managementUrl);
+  const auth = `Basic ${Buffer.from(`${base.username}:${base.password}`).toString('base64')}`;
+  const origin = `${base.protocol}//${base.host}`;
+
+  const listed = await fetch(`${origin}/api/connections`, { headers: { authorization: auth } });
+  const connections = (await listed.json()) as { name: string }[];
+
+  for (const { name } of connections) {
+    await fetch(`${origin}/api/connections/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      headers: { authorization: auth },
+    });
+  }
+  return connections.length;
+}

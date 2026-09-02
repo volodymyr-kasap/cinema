@@ -25,4 +25,9 @@ export default async function globalSetup(): Promise<void> {
     `amqp://guest:guest@${rabbit.getHost()}:${String(rabbit.getMappedPort(5672))}`,
     'utf8',
   );
+  writeFileSync(
+    `${__dirname}/.rabbit-management-url`,
+    `http://guest:guest@${rabbit.getHost()}:${String(rabbit.getMappedPort(15672))}`,
+    'utf8',
+  );
 }

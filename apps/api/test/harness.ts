@@ -57,7 +57,7 @@ export function getTestRedisUrl(): string {
  */
 export async function startTestRabbit(): Promise<StartedTestContainer> {
   return new GenericContainer('rabbitmq:4-management-alpine')
-    .withExposedPorts(5672)
+    .withExposedPorts(5672, 15672)
     .withWaitStrategy(Wait.forLogMessage('Server startup complete'))
     .withStartupTimeout(180_000)
     .start();
@@ -66,5 +66,15 @@ export async function startTestRabbit(): Promise<StartedTestContainer> {
 export function getTestRabbitUrl(): string {
   const url = process.env.RABBITMQ_URL;
   if (!url) throw new Error('RABBITMQ_URL is not set; global setup did not run');
+  return url;
+}
+
+/**
+ * The management API, used to cut connections from the broker's side. Restarting
+ * the container would remap its ports and invalidate every URL the suite holds.
+ */
+export function getTestRabbitManagementUrl(): string {
+  const url = process.env.RABBITMQ_MANAGEMENT_URL;
+  if (!url) throw new Error('RABBITMQ_MANAGEMENT_URL is not set; global setup did not run');
   return url;
 }
