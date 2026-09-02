@@ -42,6 +42,9 @@ interface ReleasedSeat {
   seatId: string;
 }
 
+/** What a delivered reservation.expire message turned out to mean. */
+export type SettleOutcome = 'expired' | 'not-found' | 'terminal' | 'not-due';
+
 @Injectable()
 export class ReservationService {
   constructor(
@@ -338,6 +341,42 @@ export class ReservationService {
     });
 
     await this.releaseLocks(released);
+  }
+
+  /**
+   * The worker's entire job. Idempotent by construction: the terminal check
+   * below is what makes at-least-once delivery safe without a dedupe table --
+   * a second delivery finds a row that is no longer PENDING and does nothing.
+   *
+   * `lockOwned` is not reused because it filters by session, and the worker acts
+   * for the system rather than for a caller. The row lock is the same one.
+   */
+  async settleExpired(reservationId: string): Promise<SettleOutcome> {
+    const outcome = await this.db.transaction(
+      async (tx): Promise<{ result: SettleOutcome; released: ReleasedSeat[] }> => {
+        const [row] = await tx
+          .select({
+            status: reservations.status,
+            // The database's clock, never the broker's: the TTL that delivered
+            // this message was measured somewhere else entirely.
+            due: sql<boolean>`${reservations.expiresAt} <= now()`,
+          })
+          .from(reservations)
+          .where(eq(reservations.id, reservationId))
+          .limit(1)
+          .for('update');
+
+        if (!row) return { result: 'not-found', released: [] };
+        if (row.status !== 'PENDING') return { result: 'terminal', released: [] };
+        if (!row.due) return { result: 'not-due', released: [] };
+
+        return { result: 'expired', released: await this.expire(tx, reservationId) };
+      },
+    );
+
+    // After the commit, like every other release in this service.
+    await this.releaseLocks(outcome.released);
+    return outcome.result;
   }
 
   /**

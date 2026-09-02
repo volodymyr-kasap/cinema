@@ -89,6 +89,16 @@ export interface ReservationHarness {
   close(): Promise<void>;
 }
 
+/**
+ * Boots the application against the shared containers.
+ *
+ * Starting a SECOND harness while a first one is still in use re-seeds: this
+ * calls seedDatabase, which truncates showtimes and seats with RESTART IDENTITY
+ * CASCADE, so every id the first harness handed out (`seatIds`, `showtimeId`,
+ * `pastSeatId`) goes stale the moment the second one starts. A suite that needs
+ * two configurations should either finish with the nested one or vary the row
+ * it already holds instead.
+ */
 export async function startReservationHarness(
   options: HarnessOptions = {},
 ): Promise<ReservationHarness> {
