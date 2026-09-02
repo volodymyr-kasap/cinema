@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
+import type { INestApplicationContext } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { connect, type Channel, type ChannelModel, type ConsumeMessage } from 'amqplib';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 
+import type { Database } from '../src/db/drizzle.module';
+import { schema } from '../src/db/schema';
 import {
   COMMANDS_EXCHANGE,
   EXPIRE_DLQ,
@@ -9,6 +15,10 @@ import {
   EXPIRE_WAIT_QUEUE,
   retryQueue,
 } from '../src/messaging/messages';
+import { ReservationService, type SettleOutcome } from '../src/reservations/reservation.service';
+import { ExpireConsumer } from '../src/worker/expire.consumer';
+import { WorkerModule } from '../src/worker/worker.module';
+import { getTestDatabaseUrl } from './harness';
 
 /**
  * A plain connection and channel for asserting on what the application wrote.
@@ -122,4 +132,72 @@ export async function takeOne(
       )
       .catch(reject);
   });
+}
+
+export interface WorkerHarnessOptions {
+  ttlSeconds?: number;
+  retryDelaysMs?: number[];
+  prefetch?: number;
+  /**
+   * Replaces settleExpired. Supplying one that rejects is how the retry ladder
+   * is tested without inventing a database failure.
+   */
+  settle?: (reservationId: string) => Promise<SettleOutcome>;
+  /** Defaults to `queue`; the lazy-mode suite passes `lazy`. */
+  expiryMode?: 'lazy' | 'queue';
+}
+
+export interface WorkerHarness {
+  context: INestApplicationContext;
+  consumer: ExpireConsumer;
+  db: Database;
+  close(): Promise<void>;
+}
+
+export async function startWorkerHarness(
+  options: WorkerHarnessOptions = {},
+): Promise<WorkerHarness> {
+  // Patched before the module compiles, because ConfigService parses the
+  // environment in a field initialiser -- the same constraint the reservation
+  // harness works around, and the same restore-rather-than-delete on close.
+  const overrides: Record<string, string | undefined> = {
+    RESERVATION_EXPIRY_MODE: options.expiryMode ?? 'queue',
+    RESERVATION_TTL_SECONDS:
+      options.ttlSeconds === undefined ? undefined : String(options.ttlSeconds),
+    RABBITMQ_PREFETCH: options.prefetch === undefined ? undefined : String(options.prefetch),
+    RABBITMQ_RETRY_DELAYS_MS: options.retryDelaysMs?.join(','),
+  };
+  const restore = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) continue;
+    restore.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+
+  const builder = Test.createTestingModule({ imports: [WorkerModule] });
+  if (options.settle) {
+    builder.overrideProvider(ReservationService).useValue({ settleExpired: options.settle });
+  }
+
+  const context = await builder.compile();
+  // init() runs onApplicationBootstrap, which is where the consumer subscribes.
+  await context.init();
+
+  const pool = new Pool({ connectionString: getTestDatabaseUrl() });
+  pool.on('error', () => {});
+
+  return {
+    context,
+    consumer: context.get(ExpireConsumer),
+    db: drizzle(pool, { schema }) as Database,
+    close: async () => {
+      // close() runs onApplicationShutdown, so this also exercises the drain.
+      await context.close();
+      await pool.end();
+      for (const [key, value] of restore) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    },
+  };
 }
