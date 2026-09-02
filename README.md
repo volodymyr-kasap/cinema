@@ -4,11 +4,12 @@ Seat booking under contention, built as a study of the machinery real ticketing
 systems need: transactions, distributed locking, asynchronous workers, event
 streaming and observability.
 
-This repository is being built in sub-projects. **Phase 3 — Redis, distributed
-locking and measurement — is what exists today:** the catalogue API and seat map
-from phase 1, seat holds and the proof that one seat cannot be sold twice from
-phase 2, and now an advisory Redis lock in front of the transaction together with
-the numbers that say what each strategy costs. See
+This repository is being built in sub-projects. **Phase 4 — RabbitMQ and the
+expiry worker — is what exists today:** the catalogue API and seat map from phase
+1, seat holds and the proof that one seat cannot be sold twice from phase 2, the
+advisory Redis lock and the numbers that say what each strategy costs from phase
+3, and now the expiry of a hold as a delivered message, with the retry ladder and
+dead-letter queue that make delivery survivable. See
 [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design of each
 phase and [`docs/adr/`](docs/adr/) for why each decision was made.
 
@@ -102,18 +103,40 @@ answered everything is a measurement of one container, not of a cluster.
 
 Results: [`docs/experiments/2026-08-28-db-vs-redis-locking.md`](docs/experiments/2026-08-28-db-vs-redis-locking.md).
 
-## What phase 3 deliberately does not have
+## Expiry as a message
 
-Still no authentication, no payments, no queues, no metrics. Each arrives in its
+A hold lasts ten minutes. Since phase 4 that deadline is also a message:
+`create()` publishes `reservation.expire` into a queue with no consumer whose
+TTL is the length of the hold, and when it lapses the broker delivers it to a
+worker that settles the row.
+
+```bash
+RESERVATION_EXPIRY_MODE=queue docker compose up --build
+docker compose exec rabbitmq rabbitmqctl list_queues name messages
+```
+
+The mode defaults to `lazy`, which is phase 3's behaviour exactly: no connection,
+no queues, nothing published. That is not a fallback but the baseline — the whole
+suite runs in both modes, and a worker that changed any answer phase 2 or phase 3
+proved would be a worker that had quietly become load-bearing.
+
+Stop the broker and holds still expire. That is the design, not a consolation:
+lazy expiry never stopped being authoritative (ADR 0030).
+
+## What phase 4 deliberately does not have
+
+Still no authentication, no payments, no Kafka, no metrics. Each arrives in its
 own sub-project together with the problem it solves — the specification's first
-principle is that no technology enters without one.
+principle is that no technology enters without one. There is no outbox, no
+`Idempotency-Key`, no circuit breaker and no rate limiting either; phase 4 leaves
+the seams where they go, rather than the machinery.
 
-Phase 3 admits exactly one new runtime dependency, `ioredis`, and it had to earn
-it. ADR 0008 deferred Redis in phase 1 so that the database-only path would exist
-as an honest baseline; the price of that path is that every loser pays a
-transaction and a connection. Phase 3's job was to measure that price rather than
-assert it, which is why both strategies still ship in the same build and the
-comparison can be re-run on any commit.
+Phase 4 admits exactly one new runtime dependency, `amqplib`, and it had to earn
+it the same way `ioredis` did in phase 3. Lazy expiry is correct and stays
+authoritative (ADR 0030), but it makes "this hold has expired" a thing that
+happens to nobody in particular — it is observed by the next caller who wants the
+seat, if one ever comes. Sub-project 5 needs that to be an event, with a time and
+a subscriber, and this is the phase that makes it one.
 
 ## Notable details
 
@@ -130,9 +153,17 @@ comparison can be re-run on any commit.
   against a running stack costs a wasted transaction per request and produces no
   double booking — there is a test that does exactly that.
 - **Holds expire lazily, with no scheduler.** A lapsed hold is released by the
-  next caller who wants those seats. The API runs no cron job, no worker and no
-  timer of any kind; the only interval in the repository is the one-second tick
-  that redraws the countdown in the browser.
+  next caller who wants those seats, and that path remains the guarantee. The API
+  runs no cron job and no timer of any kind; the only interval in the repository
+  is the one-second tick that redraws the countdown in the browser.
+- **A hold expires because a message was delivered, and also because someone
+  wanted the seat.** Two paths write the same transition on purpose. Both take
+  the same row lock, both are idempotent, and whichever arrives first wins —
+  which is what lets a dead broker cost nothing but a warning.
+- **The ten-minute delay is a queue, not a timer.** There is still no cron, no
+  `setInterval` and no sweeper anywhere in the API: the wait queue's TTL is the
+  clock, and the worker only ever acts on a message addressed to it. A sweeper
+  scans for work that may not exist; this receives work that already does.
 - **Overlapping showtimes are impossible by construction** — a GiST exclusion
   constraint over `tstzrange`, not an application check.
 - **Every failure is an RFC 9457 problem document** carrying the request's
