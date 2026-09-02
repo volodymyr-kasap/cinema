@@ -11,3 +11,11 @@ services:
       replicas: 1
     ports:
       - '3000:3000'
+
+  # Development only. The queue depths and the DLQ are the whole diagnostic
+  # surface of this sub-project until Prometheus arrives, and being able to look
+  # at them is worth a published port on a single-instance stack.
+  rabbitmq:
+    ports:
+      - '5672:5672'
+      - '15672:15672'

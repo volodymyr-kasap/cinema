@@ -32,6 +32,25 @@ services:
       timeout: 2s
       retries: 20
 
+  # A volume, unlike redis: these messages are the record that a hold needs
+  # settling, and a broker restart that lost them would leave rows for lazy
+  # expiry to find by accident rather than by design.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: cinema
+      RABBITMQ_DEFAULT_PASS: cinema
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      # The broker takes longer to become useful than to open its port, and a
+      # dependent that starts inside that window fails its first connection.
+      start_period: 30s
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
   # Migrations run as their own step, not from the app bootstrap: with more than
   # one API replica, parallel bootstraps would race each other over DDL.
   migrate:
@@ -73,6 +92,11 @@ services:
       LOCK_STRATEGY: ${LOCK_STRATEGY:-db}
       REDIS_URL: redis://redis:6379
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      # Set unconditionally while the mode defaults to `lazy`, exactly as
+      # REDIS_URL is: the variable is harmless when unused, and switching the
+      # whole stack is then one environment variable rather than an edit.
+      RESERVATION_EXPIRY_MODE: ${RESERVATION_EXPIRY_MODE:-lazy}
+      RABBITMQ_URL: amqp://cinema:cinema@rabbitmq:5672
     # No published port: Compose will not map a fixed host port onto a scaled
     # service. Reach the API through nginx at http://localhost:8080/api/, or use
     # docker-compose.single-api.yml for the one-instance shape.
@@ -94,6 +118,37 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # The same image as the api, a different entry point. No published port and no
+  # HTTP listener: this process consumes a queue and nothing else (ADR 0028).
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ['node', 'apps/api/dist/worker/main.js']
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://cinema:cinema@postgres:5432/cinema
+      LOG_LEVEL: info
+      LOCK_STRATEGY: ${LOCK_STRATEGY:-db}
+      REDIS_URL: redis://redis:6379
+      RESERVATION_EXPIRY_MODE: ${RESERVATION_EXPIRY_MODE:-lazy}
+      RABBITMQ_URL: amqp://cinema:cinema@rabbitmq:5672
+      RABBITMQ_PREFETCH: ${RABBITMQ_PREFETCH:-20}
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    # In the default `lazy` mode this process logs one line and exits 0. That is
+    # success, not a crash, so the restart policy must not treat it as one --
+    # `on-failure` restarts a non-zero exit and leaves a clean one alone.
+    restart: on-failure
+    # Long enough for the drain in onApplicationShutdown to finish the message
+    # the worker is holding.
+    stop_grace_period: 30s
 
   web:
     build:
@@ -122,3 +177,4 @@ services:
 
 volumes:
   postgres-data:
+  rabbitmq-data:
