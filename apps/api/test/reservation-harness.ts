@@ -18,6 +18,7 @@ import { seedDatabase } from '../src/db/seed';
 import { ProblemDetailsFilter } from '../src/http/problem-details.filter';
 import { createRedisClient } from '../src/locking/redis.module';
 import { SEAT_LOCK, type SeatLock } from '../src/locking/seat-lock';
+import { ExpirePublisher } from '../src/messaging/expire.publisher';
 import { generateRequestId, registerCorrelation } from '../src/observability/logger';
 import { getTestDatabaseUrl, getTestRedisUrl } from './harness';
 
@@ -34,6 +35,17 @@ export interface HarnessOptions {
    * seat and the suite passes for the wrong reason (ADR 0015).
    */
   poolMax?: number;
+  /** Which expiry path the application under test uses. */
+  expiryMode?: 'lazy' | 'queue';
+  /** Overrides RABBITMQ_URL. Pointing it at a closed port is how fail open is proved. */
+  rabbitmqUrl?: string;
+  /**
+   * Overrides the retry ladder. Queue arguments are part of a queue's identity,
+   * so a suite that runs this harness beside a worker harness MUST give both the
+   * same ladder -- otherwise the second one to declare the retry queues gets
+   * PRECONDITION_FAILED (406) and loses its channel.
+   */
+  retryDelaysMs?: number[];
 }
 
 export interface ReservationHarness {
@@ -72,6 +84,8 @@ export interface ReservationHarness {
   redis: Redis | null;
   /** The adapter the application actually bound, for calling the port directly. */
   lock: SeatLock;
+  /** The publisher the application bound, for reading its fail-open counter. */
+  publisher: ExpirePublisher;
   close(): Promise<void>;
 }
 
@@ -91,6 +105,9 @@ export async function startReservationHarness(
     RESERVATION_TTL_SECONDS:
       options.ttlSeconds === undefined ? undefined : String(options.ttlSeconds),
     DATABASE_POOL_MAX: options.poolMax === undefined ? undefined : String(options.poolMax),
+    RESERVATION_EXPIRY_MODE: options.expiryMode,
+    RABBITMQ_URL: options.rabbitmqUrl,
+    RABBITMQ_RETRY_DELAYS_MS: options.retryDelaysMs?.join(','),
   };
   const restore = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(overrides)) {
@@ -189,6 +206,7 @@ export async function startReservationHarness(
       }),
     redis,
     lock: app.get<SeatLock>(SEAT_LOCK),
+    publisher: app.get(ExpirePublisher),
     close: async () => {
       await app.close();
       await pool.end();

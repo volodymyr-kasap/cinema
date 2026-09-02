@@ -16,6 +16,7 @@ import { DRIZZLE, type Database, type Executor } from '../db/drizzle.module';
 import { uuidv7 } from '../db/uuid-v7';
 import { reservationSeats, reservations, seatCategories, seats, showtimes } from '../db/schema';
 import { SEAT_LOCK, type SeatLock } from '../locking/seat-lock';
+import { ExpirePublisher } from '../messaging/expire.publisher';
 import {
   InvalidStateTransitionError,
   ReservationExpiredError,
@@ -48,6 +49,7 @@ export class ReservationService {
     @Inject(SEAT_LOCK) private readonly seatLock: SeatLock,
     private readonly catalog: CatalogService,
     private readonly geometry: SeatGeometryCache,
+    private readonly expiry: ExpirePublisher,
     private readonly configService: ConfigService,
   ) {}
 
@@ -82,6 +84,12 @@ export class ReservationService {
     // safe even for the seats we have just taken over, because those keys are
     // ours now and will not match.
     await this.releaseLocks(outcome.released);
+
+    // After the commit and after the locks settle, and never inside the
+    // transaction: a transaction can roll back, a published message cannot be
+    // un-published. A failure here is a warning, not an error -- the hold is
+    // already the caller's, and lazy expiry will settle it either way.
+    await this.expiry.publishExpire(outcome.reservation.id);
     return outcome.reservation;
   }
 

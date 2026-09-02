@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { connect, type Channel, type ChannelModel, type ConsumeMessage } from 'amqplib';
 
 import {
@@ -71,24 +73,34 @@ export async function queueDepth(channel: Channel, queue: string): Promise<numbe
  * Waits for one message on a queue and acks it. Rejects rather than hanging so
  * a failure names the queue that stayed empty instead of timing the suite out.
  *
- * The `cancel` calls below are best-effort and deliberately not awaited: the
- * caller's `afterEach` typically closes the channel immediately after this
- * promise settles, and if that close wins the race against `cancel`'s reply,
- * amqplib rejects the still-pending cancel with "Channel ended, no reply will
- * be forthcoming". A fire-and-forget cleanup call is not something the caller
- * asked to be told about, so its rejection is swallowed here instead of
- * becoming an unhandled rejection attributed to whatever test runs next.
+ * The consumer is named here rather than read out of `consume`'s reply, because
+ * the reply is not guaranteed to have been seen by the time the first message
+ * is delivered: amqplib registers the consumer synchronously inside its RPC
+ * callback, but resolves the promise a microtask later, so a `Deliver` frame
+ * that arrives in the same socket read as `ConsumeOk` reaches the handler while
+ * the tag variable is still unset. A consumer that cannot be named cannot be
+ * cancelled, and one left subscribed to this shared inspection channel silently
+ * swallows -- and acks -- the message the NEXT test publishes. Choosing the tag
+ * up front makes the cancel unconditional.
+ *
+ * On the success path `resolve` waits for the cancel to be confirmed: a caller
+ * that publishes again and calls `takeOne` again must not race a consumer that
+ * is still registered, which would steal that next message. The timeout branch
+ * stays fire-and-forget -- it is a failure path, and a caller whose `afterEach`
+ * closes the channel right after may otherwise beat `cancel`'s reply, which
+ * amqplib turns into "Channel ended, no reply will be forthcoming": a rejection
+ * nobody asked to hear about, so it is swallowed there.
  */
 export async function takeOne(
   channel: Channel,
   queue: string,
   timeoutMs: number,
 ): Promise<ConsumeMessage> {
-  return new Promise<ConsumeMessage>((resolve, reject) => {
-    let tag: string | undefined;
+  const tag = `take-one-${randomUUID()}`;
 
+  return new Promise<ConsumeMessage>((resolve, reject) => {
     const timer = setTimeout(() => {
-      if (tag) void channel.cancel(tag).catch(() => {});
+      void channel.cancel(tag).catch(() => {});
       reject(new Error(`no message arrived on ${queue} within ${String(timeoutMs)}ms`));
     }, timeoutMs);
 
@@ -99,14 +111,15 @@ export async function takeOne(
           if (!message) return;
           clearTimeout(timer);
           channel.ack(message);
-          if (tag) void channel.cancel(tag).catch(() => {});
-          resolve(message);
+          void channel
+            .cancel(tag)
+            .catch(() => {})
+            .then(() => {
+              resolve(message);
+            });
         },
-        { noAck: false },
+        { noAck: false, consumerTag: tag },
       )
-      .then((reply) => {
-        tag = reply.consumerTag;
-      })
       .catch(reject);
   });
 }
