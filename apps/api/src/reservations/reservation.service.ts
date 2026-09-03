@@ -55,6 +55,28 @@ interface ReleasedSeat {
 /** What a delivered reservation.expire message turned out to mean. */
 export type SettleOutcome = 'expired' | 'not-found' | 'terminal' | 'not-due';
 
+/** What claiming an attempt at a payment turned out to mean. */
+export type PaymentClaim =
+  | {
+      kind: 'charge';
+      paymentId: string;
+      reservationId: string;
+      amountCents: number;
+      scenario: string | null;
+    }
+  | { kind: 'not-found' }
+  | { kind: 'terminal' }
+  | { kind: 'stale' };
+
+/** What the provider decided about one charge. */
+export type PaymentOutcome =
+  | { status: 'SUCCEEDED'; providerRef: string }
+  | { status: 'DECLINED'; reason: string }
+  | { status: 'FAILED'; reason: string };
+
+/** What settling a payment turned out to mean. */
+export type PaymentSettlement = 'confirmed' | 'failed' | 'not-found' | 'terminal' | 'stale';
+
 @Injectable()
 export class ReservationService {
   constructor(
@@ -457,6 +479,158 @@ export class ReservationService {
   }
 
   /**
+   * Takes ownership of one attempt: checks the payment is still ours to make
+   * and counts the attempt, in one transaction.
+   *
+   * The attempt is counted here rather than after the provider answers,
+   * because a provider that never answers is exactly the case the counter
+   * exists to record.
+   */
+  async claimPayment(paymentId: string): Promise<PaymentClaim> {
+    return this.db.transaction(async (tx): Promise<PaymentClaim> => {
+      const [head] = await tx
+        .select({ reservationId: payments.reservationId })
+        .from(payments)
+        .where(eq(payments.id, paymentId))
+        .limit(1);
+      if (!head) return { kind: 'not-found' };
+
+      // Reservations first, then payments, everywhere in this service. The
+      // reaper takes the same two rows in the same order; two paths taking them
+      // in opposite orders is a deadlock waiting for load.
+      const [reservation] = await tx
+        .select({ status: reservations.status })
+        .from(reservations)
+        .where(eq(reservations.id, head.reservationId))
+        .limit(1)
+        .for('update');
+
+      const [row] = await tx
+        .select({
+          status: payments.status,
+          amountCents: payments.amountCents,
+          scenario: payments.scenario,
+        })
+        .from(payments)
+        .where(eq(payments.id, paymentId))
+        .limit(1)
+        .for('update');
+
+      if (!row) return { kind: 'not-found' };
+      if (row.status !== 'PENDING') return { kind: 'terminal' };
+      if (!reservation || reservation.status !== 'PAYMENT_PENDING') return { kind: 'stale' };
+
+      await tx
+        .update(payments)
+        .set({ attempts: sql`${payments.attempts} + 1` })
+        .where(eq(payments.id, paymentId));
+
+      return {
+        kind: 'charge',
+        paymentId,
+        reservationId: head.reservationId,
+        amountCents: row.amountCents,
+        scenario: row.scenario,
+      };
+    });
+  }
+
+  /**
+   * Records what the provider decided and moves the reservation with it.
+   *
+   * Idempotent by the same construction as settleExpired: a payment that is no
+   * longer PENDING is left alone, which is what makes at-least-once delivery
+   * safe without a dedupe table.
+   */
+  async settlePayment(paymentId: string, outcome: PaymentOutcome): Promise<PaymentSettlement> {
+    const settled = await this.db.transaction(async (tx) => {
+      const [head] = await tx
+        .select({ reservationId: payments.reservationId })
+        .from(payments)
+        .where(eq(payments.id, paymentId))
+        .limit(1);
+      if (!head) return { result: 'not-found' as const, released: [] as ReleasedSeat[] };
+
+      const [reservation] = await tx
+        .select({ status: reservations.status, showtimeId: reservations.showtimeId })
+        .from(reservations)
+        .where(eq(reservations.id, head.reservationId))
+        .limit(1)
+        .for('update');
+
+      const [row] = await tx
+        .select({ status: payments.status })
+        .from(payments)
+        .where(eq(payments.id, paymentId))
+        .limit(1)
+        .for('update');
+
+      if (!row) return { result: 'not-found' as const, released: [] as ReleasedSeat[] };
+      if (row.status !== 'PENDING')
+        return { result: 'terminal' as const, released: [] as ReleasedSeat[] };
+      if (!reservation || reservation.status !== 'PAYMENT_PENDING') {
+        return { result: 'stale' as const, released: [] as ReleasedSeat[] };
+      }
+
+      await tx
+        .update(payments)
+        .set({
+          status: outcome.status,
+          providerRef: outcome.status === 'SUCCEEDED' ? outcome.providerRef : null,
+          settledAt: sql`now()`,
+        })
+        .where(eq(payments.id, paymentId));
+
+      if (outcome.status !== 'SUCCEEDED') {
+        await tx
+          .update(reservations)
+          .set({ status: 'PAYMENT_FAILED', cancelledAt: sql`now()`, updatedAt: sql`now()` })
+          .where(eq(reservations.id, head.reservationId));
+
+        return {
+          result: 'failed' as const,
+          released: await this.releaseSeatsOf(tx, head.reservationId),
+        };
+      }
+
+      await tx
+        .update(reservations)
+        .set({ status: 'CONFIRMED', confirmedAt: sql`now()`, updatedAt: sql`now()` })
+        .where(eq(reservations.id, head.reservationId));
+
+      const confirmed = await this.hydrateById(tx, head.reservationId);
+      const [showtime] = await tx
+        .select({ startsAt: showtimes.startsAt })
+        .from(showtimes)
+        .where(eq(showtimes.id, reservation.showtimeId))
+        .limit(1);
+
+      return {
+        result: 'confirmed' as const,
+        released: [] as ReleasedSeat[],
+        retain: {
+          showtimeId: reservation.showtimeId,
+          seatIds: confirmed.seats.map((seat) => seat.seatId),
+          reservationId: head.reservationId,
+          startsAt: showtime!.startsAt,
+        },
+      };
+    });
+
+    // After the commit, like every other lock operation in this service.
+    if (settled.result === 'failed') await this.releaseLocks(settled.released);
+    if (settled.result === 'confirmed' && 'retain' in settled && settled.retain) {
+      await this.seatLock.retain(
+        settled.retain.showtimeId,
+        settled.retain.seatIds,
+        settled.retain.reservationId,
+        settled.retain.startsAt,
+      );
+    }
+    return settled.result;
+  }
+
+  /**
    * `FOR UPDATE` is the one pessimistic lock in this sub-project, and it guards
    * a single row against its own concurrent endings -- not against the seat race,
    * which the unique index already settles.
@@ -500,6 +674,17 @@ export class ReservationService {
         showtimeId: reservationSeats.showtimeId,
         seatId: reservationSeats.seatId,
       });
+  }
+
+  /** `get` without the session filter: the worker acts for the system, not a caller. */
+  private async hydrateById(executor: Executor, id: string): Promise<Reservation> {
+    const [row] = await executor
+      .select()
+      .from(reservations)
+      .where(eq(reservations.id, id))
+      .limit(1);
+    if (!row) throw new ResourceNotFoundError('Reservation', id);
+    return this.hydrate(executor, row);
   }
 
   /** One reservation row plus its seats, in the shape the contract promises. */

@@ -5,6 +5,7 @@ import { ConfigModule } from '../config/config.module';
 import { DrizzleModule } from '../db/drizzle.module';
 import { LockingModule } from '../locking/locking.module';
 import { MessagingModule } from '../messaging/messaging.module';
+import { PaymentModule } from '../payments/payment.module';
 import { ReservationModule } from '../reservations/reservation.module';
 import { ExpireConsumer } from './expire.consumer';
 
@@ -22,6 +23,7 @@ import { ExpireConsumer } from './expire.consumer';
     LockingModule,
     MessagingModule,
     ReservationModule,
+    PaymentModule,
   ],
   providers: [ExpireConsumer],
 })
