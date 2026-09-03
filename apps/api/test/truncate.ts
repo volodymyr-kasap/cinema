@@ -13,6 +13,6 @@ import type { Database } from '../src/db/drizzle.module';
  * shows it: the next test sees a seat that is free everywhere except in Redis.
  */
 export async function truncateReservations(db: Database, redis?: Redis | null): Promise<void> {
-  await db.execute(sql`TRUNCATE reservation_seats, reservations CASCADE`);
+  await db.execute(sql`TRUNCATE payments, reservation_seats, reservations CASCADE`);
   if (redis) await redis.flushall();
 }

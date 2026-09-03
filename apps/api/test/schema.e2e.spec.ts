@@ -191,6 +191,49 @@ describe('database schema', () => {
       await expect(insertReservation('PAID')).rejects.toThrow(/reservations_status_check/);
     });
 
+    it('refuses a second payment for the same reservation', async () => {
+      const reservationId = await insertReservation('PENDING');
+
+      await pool.query(
+        `INSERT INTO payments (reservation_id, status, amount_cents) VALUES ($1, 'PENDING', 4500)`,
+        [reservationId],
+      );
+
+      // The application never tries this -- the row lock stops it long before.
+      // The index exists so that a bug in that lock is a constraint violation
+      // rather than a second charge.
+      await expect(
+        pool.query(
+          `INSERT INTO payments (reservation_id, status, amount_cents) VALUES ($1, 'PENDING', 4500)`,
+          [reservationId],
+        ),
+      ).rejects.toThrow(/unique|duplicate key/i);
+    });
+
+    it('refuses a payment status outside the four', async () => {
+      const reservationId = await insertReservation('PENDING');
+      await expect(
+        pool.query(
+          `INSERT INTO payments (reservation_id, status, amount_cents) VALUES ($1, 'REFUNDED', 4500)`,
+          [reservationId],
+        ),
+      ).rejects.toThrow(/payments_status_check/);
+    });
+
+    it('accepts the two new reservation statuses', async () => {
+      const reservationId = await insertReservation('PENDING');
+      await expect(
+        pool.query(`UPDATE reservations SET status = 'PAYMENT_PENDING' WHERE id = $1`, [
+          reservationId,
+        ]),
+      ).resolves.toBeDefined();
+      await expect(
+        pool.query(`UPDATE reservations SET status = 'PAYMENT_FAILED' WHERE id = $1`, [
+          reservationId,
+        ]),
+      ).resolves.toBeDefined();
+    });
+
     /**
      * Raw pg, not `db.execute`: drizzle wraps a failed query in an error whose
      * message is only "Failed query", losing the constraint name that is the
@@ -218,7 +261,7 @@ describe('database schema', () => {
     }
 
     afterEach(async () => {
-      await db.execute(sql`TRUNCATE reservations, reservation_seats CASCADE`);
+      await db.execute(sql`TRUNCATE payments, reservations, reservation_seats CASCADE`);
     });
   });
 });

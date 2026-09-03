@@ -132,7 +132,7 @@ export const reservations = pgTable(
     index('reservations_session_created_idx').on(t.sessionId, desc(t.createdAt), desc(t.id)),
     check(
       'reservations_status_check',
-      sql`${t.status} IN ('PENDING', 'CONFIRMED', 'CANCELLED', 'EXPIRED')`,
+      sql`${t.status} IN ('PENDING', 'PAYMENT_PENDING', 'CONFIRMED', 'PAYMENT_FAILED', 'CANCELLED', 'EXPIRED')`,
     ),
   ],
 );
@@ -167,6 +167,50 @@ export const reservationSeats = pgTable(
   ],
 );
 
+export const payments = pgTable(
+  'payments',
+  {
+    id: primaryId(),
+    /**
+     * UNIQUE, and that is the structural half of idempotency. Five concurrent
+     * confirms already serialise on the reservation's FOR UPDATE; this index
+     * makes a second payment impossible even if that lock were ever wrong. The
+     * same move as `reservation_seats_active_uq`: the invariant lives in the
+     * schema, not in the code that respects it (ADR 0009, ADR 0035).
+     */
+    reservationId: uuid('reservation_id')
+      .notNull()
+      .unique()
+      .references(() => reservations.id),
+    status: text('status').notNull(),
+    /**
+     * Copied from the reservation when the payment starts. Not denormalised for
+     * speed: this is the sum the provider was asked for, and it must survive any
+     * later change to the reservation.
+     */
+    amountCents: integer('amount_cents').notNull(),
+    /** NULL until the provider answers. The first thing a human reading the DLQ wants. */
+    providerRef: text('provider_ref'),
+    /**
+     * Calls made to the provider, replays included. Not a duplicate of the
+     * `x-attempt` header: that lives in the message and dies with it.
+     */
+    attempts: integer('attempts').notNull().default(0),
+    /** Fake-provider passthrough; NULL in ordinary use. Stored so retry N sends what attempt 1 sent. */
+    scenario: text('scenario'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+  },
+  (t) => [
+    check(
+      'payments_status_check',
+      sql`${t.status} IN ('PENDING', 'SUCCEEDED', 'DECLINED', 'FAILED')`,
+    ),
+    /** The reaper's predicate: pending payments, oldest first. */
+    index('payments_pending_created_idx').on(t.status, t.createdAt),
+  ],
+);
+
 export const schema = {
   users,
   movies,
@@ -177,4 +221,5 @@ export const schema = {
   showtimes,
   reservations,
   reservationSeats,
+  payments,
 };
