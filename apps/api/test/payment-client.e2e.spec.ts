@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 
 import { ConfigService } from '../src/config/config.service';
 import {
@@ -60,6 +61,30 @@ describe('PaymentProviderClient', () => {
 
   it('throws ProviderUnavailableError on a 500', async () => {
     await expect(build().charge(command('error'))).rejects.toBeInstanceOf(ProviderUnavailableError);
+  });
+
+  it('throws ProviderUnavailableError when a 200 body is not JSON at all', async () => {
+    // The fake provider never emits malformed JSON, so this stands up a tiny
+    // ad hoc HTTP stub rather than adding a scenario to it just for this one
+    // case. A schema mismatch (a 200 that parses but doesn't match
+    // chargeResponseSchema) is already covered by the fake provider's own
+    // responses being the only shapes the client ever sees from it; this test
+    // is specifically for response.json() itself throwing.
+    const stub = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('this is not json');
+    });
+    await new Promise<void>((resolve) => stub.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = stub.address();
+      if (typeof address !== 'object' || address === null) throw new Error('stub did not bind');
+      const client = build({ PAYMENT_PROVIDER_URL: `http://127.0.0.1:${String(address.port)}` });
+      await expect(client.charge(command('success'))).rejects.toBeInstanceOf(
+        ProviderUnavailableError,
+      );
+    } finally {
+      await new Promise<void>((resolve) => stub.close(() => resolve()));
+    }
   });
 
   it('throws ProviderUnavailableError when the provider hangs past the timeout', async () => {

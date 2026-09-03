@@ -100,7 +100,17 @@ export class PaymentProviderClient {
       throw new ProviderUnavailableError(`status ${String(response.status)}`);
     }
 
-    const parsed = chargeResponseSchema.safeParse(await response.json());
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      // Not JSON at all -- distinct from a 200 that parses but doesn't match
+      // the schema below, though both land in the same error type: neither is
+      // an answer we can read, and both must retry rather than be guessed at.
+      throw new ProviderUnavailableError(`response body was not valid JSON: ${String(error)}`);
+    }
+
+    const parsed = chargeResponseSchema.safeParse(body);
     if (!parsed.success) {
       // A 200 we cannot read is not an answer. Treating it as one would mean
       // guessing whether money moved.
