@@ -46,6 +46,10 @@ export interface HarnessOptions {
    * PRECONDITION_FAILED (406) and loses its channel.
    */
   retryDelaysMs?: number[];
+  /** Which confirm path the application under test uses. */
+  paymentMode?: 'off' | 'queue';
+  /** Overrides PAYMENT_PROVIDER_URL. */
+  paymentProviderUrl?: string;
 }
 
 export interface ReservationHarness {
@@ -119,6 +123,8 @@ export async function startReservationHarness(
     RESERVATION_EXPIRY_MODE: options.expiryMode,
     RABBITMQ_URL: options.rabbitmqUrl,
     RABBITMQ_RETRY_DELAYS_MS: options.retryDelaysMs?.join(','),
+    PAYMENT_MODE: options.paymentMode,
+    PAYMENT_PROVIDER_URL: options.paymentProviderUrl,
   };
   const restore = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(overrides)) {

@@ -118,3 +118,33 @@ export class SeatsUnavailableError extends DomainError {
     return { seatIds: this.lost.map((seat) => seat.seatId) };
   }
 }
+
+/**
+ * The broker would not take the payment message, so the transaction that would
+ * have started the payment was rolled back. The hold is untouched and still
+ * PENDING, which is why this is a 503 the caller may retry rather than a 500.
+ */
+export class PaymentUnavailableError extends DomainError {
+  readonly status = 503;
+  readonly typeSlug = 'payment-unavailable';
+  readonly title = 'Payment cannot be started right now';
+
+  constructor(reservationId: string) {
+    super(`Payment for reservation ${reservationId} could not be started; the hold is unchanged`);
+  }
+}
+
+/**
+ * Cancelling a reservation whose money may already be moving. Distinct from
+ * InvalidStateTransitionError, which would also be a 409 here: this one names
+ * the actual reason, and a client can act on it (wait, then re-read).
+ */
+export class PaymentInFlightError extends DomainError {
+  readonly status = 409;
+  readonly typeSlug = 'payment-in-flight';
+  readonly title = 'Payment in flight';
+
+  constructor(reservationId: string) {
+    super(`Reservation ${reservationId} is being paid for and cannot be changed until it settles`);
+  }
+}

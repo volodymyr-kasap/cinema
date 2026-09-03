@@ -3,6 +3,7 @@ import type {
   CreateReservation,
   Page,
   PaginationQuery,
+  PaymentStatus,
   Reservation,
   ReservationSeat,
 } from '@cinema/contracts';
@@ -14,11 +15,20 @@ import { ConfigService } from '../config/config.service';
 import { decodeTimestampIdCursor, encodeCursor } from '../catalog/cursor';
 import { DRIZZLE, type Database, type Executor } from '../db/drizzle.module';
 import { uuidv7 } from '../db/uuid-v7';
-import { reservationSeats, reservations, seatCategories, seats, showtimes } from '../db/schema';
+import {
+  payments,
+  reservationSeats,
+  reservations,
+  seatCategories,
+  seats,
+  showtimes,
+} from '../db/schema';
 import { SEAT_LOCK, type SeatLock } from '../locking/seat-lock';
 import { ExpirePublisher } from '../messaging/expire.publisher';
+import { PaymentPublisher } from '../messaging/payment.publisher';
 import {
   InvalidStateTransitionError,
+  PaymentInFlightError,
   ReservationExpiredError,
   ResourceNotFoundError,
   SeatsNotInHallError,
@@ -53,6 +63,7 @@ export class ReservationService {
     private readonly catalog: CatalogService,
     private readonly geometry: SeatGeometryCache,
     private readonly expiry: ExpirePublisher,
+    private readonly paymentPublisher: PaymentPublisher,
     private readonly configService: ConfigService,
   ) {}
 
@@ -268,62 +279,128 @@ export class ReservationService {
     };
   }
 
-  async confirm(sessionId: string, id: string): Promise<Reservation> {
-    /**
-     * The expiry is reported *after* the transaction, never thrown from inside
-     * it: throwing rolls back, which would discard the very EXPIRED row this
-     * call just wrote and leave the seats held by a hold nobody can confirm.
-     * Whoever discovers the expiry records it, then answers 409.
-     */
+  /**
+   * Returns the reservation and whether a payment was started. The caller turns
+   * `paying` into 202 rather than 200: the booking is not final yet, and saying
+   * so is the difference between a truthful API and one that claims a sale the
+   * provider has not agreed to.
+   */
+  async confirm(
+    sessionId: string,
+    id: string,
+    scenario?: string,
+  ): Promise<{ reservation: Reservation; paying: boolean }> {
     const outcome = await this.db.transaction(async (tx) => {
       const row = await this.lockOwned(tx, sessionId, id);
 
       if (row.status === 'PENDING' && row.expired) {
         return { expired: true as const, released: await this.expire(tx, id) };
       }
-      if (!canTransition(row.status, 'CONFIRMED')) {
-        throw new InvalidStateTransitionError(row.status, 'CONFIRMED');
+
+      // A replay of a confirm that is already running. Not an error: the caller
+      // asked for a payment and a payment is happening. This, plus the row lock
+      // above and payments.reservation_id UNIQUE, is the whole of idempotency
+      // on this endpoint -- no header, because the path already names the
+      // operation (ADR 0035).
+      if (row.status === 'PAYMENT_PENDING') {
+        return {
+          expired: false as const,
+          paying: true as const,
+          reservation: await this.get(sessionId, id, tx),
+          startsAt: null,
+        };
+      }
+
+      if (this.configService.config.paymentMode !== 'queue') {
+        if (!canTransition(row.status, 'CONFIRMED')) {
+          throw new InvalidStateTransitionError(row.status, 'CONFIRMED');
+        }
+
+        await tx
+          .update(reservations)
+          .set({ status: 'CONFIRMED', confirmedAt: sql`now()`, updatedAt: sql`now()` })
+          .where(eq(reservations.id, id));
+
+        const reservation = await this.get(sessionId, id, tx);
+        const [showtime] = await tx
+          .select({ startsAt: showtimes.startsAt })
+          .from(showtimes)
+          .where(eq(showtimes.id, reservation.showtimeId))
+          .limit(1);
+
+        return {
+          expired: false as const,
+          paying: false as const,
+          reservation,
+          startsAt: showtime!.startsAt,
+        };
+      }
+
+      if (!canTransition(row.status, 'PAYMENT_PENDING')) {
+        throw new InvalidStateTransitionError(row.status, 'PAYMENT_PENDING');
       }
 
       await tx
         .update(reservations)
-        .set({ status: 'CONFIRMED', confirmedAt: sql`now()`, updatedAt: sql`now()` })
+        .set({ status: 'PAYMENT_PENDING', updatedAt: sql`now()` })
         .where(eq(reservations.id, id));
 
-      const reservation = await this.get(sessionId, id, tx);
-      // Read inside the transaction so the extension cannot be computed from a
-      // showtime that was rescheduled between the commit and the retain.
-      const [showtime] = await tx
-        .select({ startsAt: showtimes.startsAt })
-        .from(showtimes)
-        .where(eq(showtimes.id, reservation.showtimeId))
+      const [amounts] = await tx
+        .select({ totalPriceCents: reservations.totalPriceCents })
+        .from(reservations)
+        .where(eq(reservations.id, id))
         .limit(1);
 
-      return { expired: false as const, reservation, startsAt: showtime!.startsAt };
+      // Minted here, before the insert, because it is the Idempotency-Key the
+      // provider will be shown on every attempt (ADR 0035).
+      const paymentId = uuidv7();
+      await tx.insert(payments).values({
+        id: paymentId,
+        reservationId: id,
+        status: 'PENDING',
+        amountCents: amounts!.totalPriceCents,
+        scenario: scenario ?? null,
+      });
+
+      // INSIDE the transaction, and it throws. See PaymentPublisher's comment
+      // and ADR 0037: a message published for a transaction that rolls back is
+      // dropped by the consumer, while a lost message strands a hold.
+      await this.paymentPublisher.publishPayment(paymentId);
+
+      return {
+        expired: false as const,
+        paying: true as const,
+        reservation: await this.get(sessionId, id, tx),
+        startsAt: null,
+      };
     });
 
     if (outcome.expired) {
-      // The seats went back to the pool inside the transaction; their keys have
-      // to follow, or they block seats nobody holds until the TTL runs out.
       await this.releaseLocks(outcome.released);
       throw new ReservationExpiredError(id);
     }
 
-    // Not release: a confirmed seat is never free again, and dropping the key
-    // would invite the next request to take the lock, open a transaction and be
-    // refused by the index -- exactly the work the lock exists to avoid.
-    await this.seatLock.retain(
-      outcome.reservation.showtimeId,
-      outcome.reservation.seats.map((seat) => seat.seatId),
-      id,
-      outcome.startsAt,
-    );
-    return outcome.reservation;
+    // Only a finished sale retains its keys. A payment in flight leaves them
+    // exactly as the hold left them: still owned, still expiring with the hold.
+    if (!outcome.paying) {
+      await this.seatLock.retain(
+        outcome.reservation.showtimeId,
+        outcome.reservation.seats.map((seat) => seat.seatId),
+        id,
+        outcome.startsAt!,
+      );
+    }
+
+    return { reservation: outcome.reservation, paying: outcome.paying };
   }
 
   async cancel(sessionId: string, id: string): Promise<void> {
     const released = await this.db.transaction(async (tx) => {
       const row = await this.lockOwned(tx, sessionId, id);
+
+      // The money may already have moved. Answering 409 here rather than
+      // letting canTransition do it names the reason, which a client can act on.
+      if (row.status === 'PAYMENT_PENDING') throw new PaymentInFlightError(id);
 
       // Cancelling is idempotent. The caller asked for the seats to be released;
       // for a reservation that already ended, they are.
@@ -443,6 +520,16 @@ export class ReservationService {
       .where(eq(reservationSeats.reservationId, row.id))
       .orderBy(asc(seats.rowLabel), asc(seats.seatNumber));
 
+    const [payment] = await executor
+      .select({
+        status: payments.status,
+        amountCents: payments.amountCents,
+        attempts: payments.attempts,
+      })
+      .from(payments)
+      .where(eq(payments.reservationId, row.id))
+      .limit(1);
+
     return {
       id: row.id,
       showtimeId: row.showtimeId,
@@ -454,6 +541,17 @@ export class ReservationService {
         ...seat,
         category: seat.category as ReservationSeat['category'],
       })),
+      // Present only once a payment has been started. Attached here, not in
+      // `get`, because `get`, `list` and Task 8's `hydrateById` all build their
+      // Reservation through `hydrate` -- attaching it anywhere else would give
+      // one caller a payment and leave the others `undefined` for the same row.
+      payment: payment
+        ? {
+            status: payment.status as PaymentStatus,
+            amountCents: payment.amountCents,
+            attempts: payment.attempts,
+          }
+        : undefined,
     };
   }
 

@@ -1,8 +1,20 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import {
   createReservationSchema,
   idParamSchema,
   paginationQuerySchema,
+  PAYMENT_SCENARIO_HEADER,
   reservationPageSchema,
   reservationSchema,
   type CreateReservation,
@@ -11,6 +23,7 @@ import {
   type PaginationQuery,
   type Reservation,
 } from '@cinema/contracts';
+import type { FastifyReply } from 'fastify';
 
 import { SessionId } from '../http/session.decorator';
 import { Validated } from '../http/validated.decorator';
@@ -57,15 +70,21 @@ export class ReservationController {
     return this.reservations.cancel(sessionId, params.id);
   }
 
-  // 200, not Nest's default 201 for POST: confirming creates no new resource,
-  // it moves the one named in the path to its final state.
+  // 200 keeps its phase 2 meaning: the booking is final. 202 means the payment
+  // has been accepted for processing and the reservation is not confirmed yet.
+  // Answering 200 for both would be the API claiming a sale the provider has
+  // not agreed to.
   @Post(':id/confirm')
   @HttpCode(200)
   @Validated(reservationSchema)
-  confirmReservation(
+  async confirmReservation(
     @SessionId() sessionId: string,
     @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Headers(PAYMENT_SCENARIO_HEADER) scenario: string | undefined,
+    @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<Reservation> {
-    return this.reservations.confirm(sessionId, params.id);
+    const outcome = await this.reservations.confirm(sessionId, params.id, scenario);
+    if (outcome.paying) reply.status(202);
+    return outcome.reservation;
   }
 }
