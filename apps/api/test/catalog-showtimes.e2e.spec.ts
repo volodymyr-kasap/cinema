@@ -16,6 +16,7 @@ import { AppModule } from '../src/app.module';
 import type { Database } from '../src/db/drizzle.module';
 import { schema } from '../src/db/schema';
 import { seedDatabase } from '../src/db/seed';
+import { seedStartDate } from '../src/db/seed-data';
 import { generateRequestId, registerCorrelation } from '../src/observability/logger';
 import { getTestDatabaseUrl } from './harness';
 
@@ -112,13 +113,18 @@ describe('catalogue: showtimes and seats', () => {
   });
 
   it('interprets the date filter in the cinema local zone, not UTC', async () => {
-    // Warsaw is UTC+2 in September; the 20:30 local slot is 18:30Z, still the same
-    // local day. A UTC-based filter would put nothing wrong here, so the tell is
-    // that every returned showtime belongs to the requested local date.
+    // Warsaw runs ahead of UTC, so its latest 20:30 local slot is still the same
+    // local day once converted. A UTC-based filter would put nothing wrong here,
+    // so the tell is that every returned showtime belongs to the requested date.
+    //
+    // The date is derived from seedStartDate() rather than written down. The seed
+    // anchors day 0 on tomorrow's wall-clock date in each cinema's zone, so a
+    // literal date is right for exactly one day and then silently matches nothing.
+    const { year, month, day } = seedStartDate();
+    const date = `${String(year)}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
     const cinemas = showtimePageSchema.parse(
-      (
-        await app.inject({ method: 'GET', url: '/api/v1/showtimes?date=2026-09-03&limit=100' })
-      ).json(),
+      (await app.inject({ method: 'GET', url: `/api/v1/showtimes?date=${date}&limit=100` })).json(),
     );
 
     expect(cinemas.data.length).toBeGreaterThan(0);
