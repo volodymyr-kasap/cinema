@@ -1,13 +1,17 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import type { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
+
+import { buildProvider } from '../../payment-provider/src/provider';
 
 declare global {
   var __PG_CONTAINER__: StartedPostgreSqlContainer | undefined;
   var __REDIS_CONTAINER__: StartedTestContainer | undefined;
   var __RABBIT_CONTAINER__: StartedTestContainer | undefined;
+  var __PROVIDER__: FastifyInstance | undefined;
 }
 
 export async function startTestDatabase(): Promise<StartedPostgreSqlContainer> {
@@ -76,5 +80,30 @@ export function getTestRabbitUrl(): string {
 export function getTestRabbitManagementUrl(): string {
   const url = process.env.RABBITMQ_MANAGEMENT_URL;
   if (!url) throw new Error('RABBITMQ_MANAGEMENT_URL is not set; global setup did not run');
+  return url;
+}
+
+/**
+ * The provider runs in the Jest process on an ephemeral port, not in a
+ * container. It is a real socket and a real HTTP hop -- which is the whole
+ * argument of ADR 0040 -- but building an image for eight hundred bytes of
+ * Fastify would add a minute to every run for nothing.
+ *
+ * Every scenario the suites use is named by header, so the weights here only
+ * decide what an un-headered request gets, and the suites never send one.
+ */
+export async function startTestProvider(): Promise<FastifyInstance> {
+  const app = buildProvider({
+    weights: { success: 1, decline: 0, error: 0, timeout: 0 },
+    // Longer than any client timeout in the suite, so `timeout` really hangs.
+    hangMs: 60_000,
+  });
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  return app;
+}
+
+export function getTestProviderUrl(): string {
+  const url = process.env.PAYMENT_PROVIDER_URL;
+  if (!url) throw new Error('PAYMENT_PROVIDER_URL is not set; global setup did not run');
   return url;
 }

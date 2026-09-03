@@ -3,5 +3,6 @@ export default async function globalTeardown(): Promise<void> {
     globalThis.__PG_CONTAINER__?.stop(),
     globalThis.__REDIS_CONTAINER__?.stop(),
     globalThis.__RABBIT_CONTAINER__?.stop(),
+    globalThis.__PROVIDER__?.close(),
   ]);
 }

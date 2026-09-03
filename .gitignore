@@ -16,5 +16,6 @@ apps/api/test/.database-url
 apps/api/test/.redis-url
 apps/api/test/.rabbit-url
 apps/api/test/.rabbit-management-url
+apps/api/test/.provider-url
 apps/web/dist/
 load/results/

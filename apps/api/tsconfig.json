@@ -6,6 +6,13 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "outDir": "dist",
+    // Explicit, and wider than TS would otherwise infer, because
+    // test/harness.ts imports apps/payment-provider/src/provider.ts across the
+    // workspace boundary to boot the fake provider in-process for the payment
+    // client suite (ADR 0040). Without this, tsc reports TS6059 for every file
+    // that import pulls in. tsconfig.build.json overrides this back to `src`
+    // and excludes test/, so `nest build` is unaffected.
+    "rootDir": "../..",
     // A CommonJS Nest app needs node10 module resolution, which TypeScript 6 deprecates (TS5107)
     // in favor of node16/bundler. This option suppresses that deprecation error.
     "ignoreDeprecations": "6.0",

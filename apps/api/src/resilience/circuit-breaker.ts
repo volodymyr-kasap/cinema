@@ -74,6 +74,9 @@ export class CircuitBreaker {
         throw new CircuitOpenError(this.openMs - elapsed);
       }
       this.state_ = 'HALF_OPEN';
+      // Defensive, not load-bearing: every path that reaches OPEN goes through
+      // open(), and onFailure already cleared this flag before calling it. Kept
+      // so this transition does not silently depend on that ordering.
       this.trialInFlight = false;
     }
 
@@ -82,6 +85,11 @@ export class CircuitBreaker {
       // the downstream the instant openMs lapses.
       if (this.trialInFlight) {
         this.rejectedCount += 1;
+        // 0 is not "closing imminently" -- there is no remaining quiet period to
+        // report here, only a trial call in flight that may resolve in a
+        // millisecond or hang for the full timeout. The resulting message ("open
+        // for another 0ms") is misleading read literally; treat 0 from this call
+        // site as "a trial is already running", not as a countdown.
         throw new CircuitOpenError(0);
       }
       this.trialInFlight = true;
