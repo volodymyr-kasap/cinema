@@ -11,8 +11,8 @@
   },
   "scripts": {
     "contracts:build": "npm run build -w @cinema/contracts",
-    "build": "npm run contracts:build && npm run build -w @cinema/api && npm run build -w @cinema/web",
-    "test": "npm run contracts:build && npm run test -w @cinema/contracts && npm run test -w @cinema/api && npm run test -w @cinema/web",
+    "build": "npm run contracts:build && npm run build -w @cinema/api && npm run build -w @cinema/payment-provider && npm run build -w @cinema/web",
+    "test": "npm run contracts:build && npm run test -w @cinema/contracts && npm run test -w @cinema/payment-provider && npm run test -w @cinema/api && npm run test -w @cinema/web",
     "typecheck": "npm run contracts:build && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",

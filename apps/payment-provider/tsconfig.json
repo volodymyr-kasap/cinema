@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    // TypeScript 6 deprecates node10 resolution as TS5107. apps/api carries the
+    // same suppression for the same reason: this is a CommonJS app, and node16
+    // would change how every dependency resolves.
+    "ignoreDeprecations": "6.0",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
