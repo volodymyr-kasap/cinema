@@ -1,13 +1,22 @@
 import { z } from 'zod';
 
 import { pageSchema } from './common.js';
+import { paymentStatusSchema } from './payment.js';
 import { seatCategorySchema } from './seat.js';
 
 /**
- * The whole state machine. `PENDING` is the only non-terminal state: a hold
- * either becomes a purchase, is given up, or runs out of time.
+ * The whole state machine. `PENDING` and `PAYMENT_PENDING` are the only
+ * non-terminal states: a hold either starts a payment, is given up, or runs out
+ * of time; a payment either succeeds or does not.
  */
-export const reservationStatusSchema = z.enum(['PENDING', 'CONFIRMED', 'CANCELLED', 'EXPIRED']);
+export const reservationStatusSchema = z.enum([
+  'PENDING',
+  'PAYMENT_PENDING',
+  'CONFIRMED',
+  'PAYMENT_FAILED',
+  'CANCELLED',
+  'EXPIRED',
+]);
 export type ReservationStatus = z.infer<typeof reservationStatusSchema>;
 
 /** Not a business rule: an upper bound on how many rows one transaction may lock. */
@@ -44,6 +53,17 @@ export const reservationSchema = z.object({
   expiresAt: z.iso.datetime(),
   createdAt: z.iso.datetime(),
   seats: z.array(reservationSeatSchema).min(1),
+  /**
+   * Present only once a payment has been started. Optional rather than
+   * nullable so every response phases 1-4 produced still parses unchanged.
+   */
+  payment: z
+    .object({
+      status: paymentStatusSchema,
+      amountCents: z.int().positive(),
+      attempts: z.int().nonnegative(),
+    })
+    .optional(),
 });
 export type Reservation = z.infer<typeof reservationSchema>;
 

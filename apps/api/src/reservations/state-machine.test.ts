@@ -10,7 +10,10 @@ describe('canTransition', () => {
   });
 
   it('treats CONFIRMED, CANCELLED and EXPIRED as terminal', () => {
-    const terminal: ReservationStatus[] = ['CONFIRMED', 'CANCELLED', 'EXPIRED'];
+    // PAYMENT_FAILED is also terminal (Task 4 covers its transitions in
+    // detail); listed here only so this test's own TERMINAL_STATUSES
+    // assertion below stays accurate now that the enum carries six states.
+    const terminal: ReservationStatus[] = ['CONFIRMED', 'CANCELLED', 'EXPIRED', 'PAYMENT_FAILED'];
     const every: ReservationStatus[] = ['PENDING', 'CONFIRMED', 'CANCELLED', 'EXPIRED'];
 
     for (const from of terminal) {

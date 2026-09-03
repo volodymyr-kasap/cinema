@@ -42,3 +42,45 @@ export const ATTEMPT_HEADER = 'x-attempt';
 export const expireMessageSchema = z.object({ reservationId: z.uuid() });
 
 export type ExpireMessage = z.infer<typeof expireMessageSchema>;
+
+/**
+ * The second message. Same exchange, same direct routing, same ladder shape --
+ * and no wait queue, because unlike expiry there is nothing to wait for: a
+ * charge is due the moment the hold is confirmed.
+ */
+export const PAYMENT_QUEUE = 'payment.requested';
+export const PAYMENT_DLQ = 'payment.requested.dlq';
+
+export const PAYMENT_KEY = 'payment.requested';
+export const PAYMENT_DEAD_KEY = 'payment.requested.dead';
+
+export function paymentRetryQueue(tier: number): string {
+  return `payment.requested.retry.${String(tier)}`;
+}
+
+export function paymentRetryKey(tier: number): string {
+  return `payment.requested.retry.${String(tier)}`;
+}
+
+/**
+ * An identifier and nothing else, for the same reason `expireMessageSchema`
+ * carries only one: the amount, the scenario and the state are all read from
+ * the row at handling time, so a delivery that arrives after the payment was
+ * settled cannot act on a stale copy of anything (ADR 0027).
+ */
+export const paymentMessageSchema = z.object({ paymentId: z.uuid() });
+
+export type PaymentMessage = z.infer<typeof paymentMessageSchema>;
+
+/**
+ * Which set of routing keys a failing handler climbs. Two messages now share
+ * one `nextHop`, and the alternative -- a second near-identical copy of the
+ * ladder logic -- is how the two drift apart.
+ */
+export interface Ladder {
+  retryKey: (tier: number) => string;
+  deadKey: string;
+}
+
+export const EXPIRE_LADDER: Ladder = { retryKey, deadKey: EXPIRE_DEAD_KEY };
+export const PAYMENT_LADDER: Ladder = { retryKey: paymentRetryKey, deadKey: PAYMENT_DEAD_KEY };

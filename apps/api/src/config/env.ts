@@ -58,6 +58,25 @@ const envObject = z.object({
       }
       return delays;
     }),
+  // `off` by default, deliberately, for the third time: a new subsystem does
+  // not switch itself on. Here it buys something extra -- on `off` the confirm
+  // endpoint keeps phase 2's contract exactly, so every test written before
+  // this sub-project stays true (ADR 0017).
+  PAYMENT_MODE: z.enum(['off', 'queue']).default('off'),
+  // No default, for the reason REDIS_URL and RABBITMQ_URL have none: a default
+  // makes the refine below vacuous, and refusing to boot beats answering 500.
+  PAYMENT_PROVIDER_URL: z.url({ protocol: /^https?$/ }).optional(),
+  // Past this, a slow provider is a dead one. Deliberately short: the caller is
+  // a worker with a retry ladder behind it, not a user watching a spinner.
+  PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1).max(60_000).default(2_000),
+  // How long a reservation may sit in PAYMENT_PENDING before the lazy sweep
+  // decides nobody is coming back for it. Must exceed the whole retry ladder,
+  // or the reaper races the last tier and frees seats a live payment still owns.
+  PAYMENT_DEADLINE_SECONDS: z.coerce.number().int().min(1).max(86_400).default(300),
+  // Consecutive infrastructural failures before the breaker opens. Declines are
+  // not counted -- see ADR 0038.
+  PAYMENT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(1_000).default(5),
+  PAYMENT_BREAKER_OPEN_MS: z.coerce.number().int().min(1).max(600_000).default(30_000),
 });
 
 const envSchema = envObject
@@ -68,6 +87,14 @@ const envSchema = envObject
   .refine((env) => env.RESERVATION_EXPIRY_MODE !== 'queue' || env.RABBITMQ_URL !== undefined, {
     path: ['RABBITMQ_URL'],
     error: 'RABBITMQ_URL is required when RESERVATION_EXPIRY_MODE is queue',
+  })
+  .refine((env) => env.PAYMENT_MODE !== 'queue' || env.PAYMENT_PROVIDER_URL !== undefined, {
+    path: ['PAYMENT_PROVIDER_URL'],
+    error: 'PAYMENT_PROVIDER_URL is required when PAYMENT_MODE is queue',
+  })
+  .refine((env) => env.PAYMENT_MODE !== 'queue' || env.RABBITMQ_URL !== undefined, {
+    path: ['RABBITMQ_URL'],
+    error: 'RABBITMQ_URL is required when PAYMENT_MODE is queue',
   });
 
 export type AppConfig = {
@@ -87,6 +114,12 @@ export type AppConfig = {
   rabbitmqPrefetch: number;
   rabbitmqPublishTimeoutMs: number;
   rabbitmqRetryDelaysMs: number[];
+  paymentMode: z.infer<typeof envObject>['PAYMENT_MODE'];
+  paymentProviderUrl: string | undefined;
+  paymentTimeoutMs: number;
+  paymentDeadlineSeconds: number;
+  paymentBreakerFailureThreshold: number;
+  paymentBreakerOpenMs: number;
 };
 
 /**
@@ -117,5 +150,11 @@ export function parseEnv(source: NodeJS.ProcessEnv): AppConfig {
     rabbitmqPrefetch: env.RABBITMQ_PREFETCH,
     rabbitmqPublishTimeoutMs: env.RABBITMQ_PUBLISH_TIMEOUT_MS,
     rabbitmqRetryDelaysMs: env.RABBITMQ_RETRY_DELAYS_MS,
+    paymentMode: env.PAYMENT_MODE,
+    paymentProviderUrl: env.PAYMENT_PROVIDER_URL?.replace(/\/+$/, ''),
+    paymentTimeoutMs: env.PAYMENT_TIMEOUT_MS,
+    paymentDeadlineSeconds: env.PAYMENT_DEADLINE_SECONDS,
+    paymentBreakerFailureThreshold: env.PAYMENT_BREAKER_FAILURE_THRESHOLD,
+    paymentBreakerOpenMs: env.PAYMENT_BREAKER_OPEN_MS,
   };
 }

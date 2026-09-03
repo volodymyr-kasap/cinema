@@ -28,6 +28,12 @@ describe('parseEnv', () => {
       rabbitmqPrefetch: 20,
       rabbitmqPublishTimeoutMs: 200,
       rabbitmqRetryDelaysMs: [5_000, 30_000, 120_000],
+      paymentMode: 'off',
+      paymentProviderUrl: undefined,
+      paymentTimeoutMs: 2_000,
+      paymentDeadlineSeconds: 300,
+      paymentBreakerFailureThreshold: 5,
+      paymentBreakerOpenMs: 30_000,
     });
   });
 
@@ -136,5 +142,58 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ...valid, RABBITMQ_RETRY_DELAYS_MS: '' })).toThrow(
       /RABBITMQ_RETRY_DELAYS_MS/,
     );
+  });
+
+  it('defaults PAYMENT_MODE to off and needs no provider url', () => {
+    const config = parseEnv({ DATABASE_URL: valid.DATABASE_URL });
+    expect(config.paymentMode).toBe('off');
+    expect(config.paymentProviderUrl).toBeUndefined();
+    expect(config.paymentTimeoutMs).toBe(2_000);
+    expect(config.paymentDeadlineSeconds).toBe(300);
+    expect(config.paymentBreakerFailureThreshold).toBe(5);
+    expect(config.paymentBreakerOpenMs).toBe(30_000);
+  });
+
+  it('requires PAYMENT_PROVIDER_URL when PAYMENT_MODE is queue', () => {
+    expect(() =>
+      parseEnv({
+        DATABASE_URL: valid.DATABASE_URL,
+        PAYMENT_MODE: 'queue',
+        RABBITMQ_URL: 'amqp://localhost',
+      }),
+    ).toThrow(/PAYMENT_PROVIDER_URL/);
+  });
+
+  it('requires RABBITMQ_URL when PAYMENT_MODE is queue', () => {
+    // Payment travels as a message. A broker-less queue mode would accept
+    // confirms it could never settle.
+    expect(() =>
+      parseEnv({
+        DATABASE_URL: valid.DATABASE_URL,
+        PAYMENT_MODE: 'queue',
+        PAYMENT_PROVIDER_URL: 'http://provider:4000',
+      }),
+    ).toThrow(/RABBITMQ_URL/);
+  });
+
+  it('accepts a fully configured queue mode', () => {
+    const config = parseEnv({
+      DATABASE_URL: valid.DATABASE_URL,
+      PAYMENT_MODE: 'queue',
+      PAYMENT_PROVIDER_URL: 'http://provider:4000/',
+      RABBITMQ_URL: 'amqp://localhost',
+    });
+    expect(config.paymentMode).toBe('queue');
+    // Trailing slash stripped, like PUBLIC_ERROR_BASE_URL: the client appends
+    // '/charge' and '//charge' is a different path on a strict router.
+    expect(config.paymentProviderUrl).toBe('http://provider:4000');
+  });
+
+  it('rejects a breaker threshold of zero', () => {
+    // A threshold of zero opens the breaker before any call has failed, which
+    // is a permanently disabled payment path presented as a configuration.
+    expect(() =>
+      parseEnv({ DATABASE_URL: valid.DATABASE_URL, PAYMENT_BREAKER_FAILURE_THRESHOLD: '0' }),
+    ).toThrow();
   });
 });
