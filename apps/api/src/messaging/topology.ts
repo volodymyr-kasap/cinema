@@ -8,6 +8,12 @@ import {
   EXPIRE_QUEUE,
   EXPIRE_WAIT_KEY,
   EXPIRE_WAIT_QUEUE,
+  PAYMENT_DEAD_KEY,
+  PAYMENT_DLQ,
+  PAYMENT_KEY,
+  PAYMENT_QUEUE,
+  paymentRetryKey,
+  paymentRetryQueue,
   retryKey,
   retryQueue,
 } from './messages';
@@ -70,4 +76,23 @@ export async function assertTopology(channel: Channel, options: TopologyOptions)
   // stays until a human looks at it.
   await channel.assertQueue(EXPIRE_DLQ, { durable: true });
   await channel.bindQueue(EXPIRE_DLQ, COMMANDS_EXCHANGE, EXPIRE_DEAD_KEY);
+
+  // The payment side of the exchange. Same ladder shape, and deliberately NO
+  // wait queue: expiry needed a delay before it acted, a charge does not.
+  await channel.assertQueue(PAYMENT_QUEUE, { durable: true });
+  await channel.bindQueue(PAYMENT_QUEUE, COMMANDS_EXCHANGE, PAYMENT_KEY);
+
+  for (const [index, delay] of options.retryDelaysMs.entries()) {
+    const tier = index + 1;
+    await channel.assertQueue(paymentRetryQueue(tier), {
+      durable: true,
+      messageTtl: delay,
+      deadLetterExchange: COMMANDS_EXCHANGE,
+      deadLetterRoutingKey: PAYMENT_KEY,
+    });
+    await channel.bindQueue(paymentRetryQueue(tier), COMMANDS_EXCHANGE, paymentRetryKey(tier));
+  }
+
+  await channel.assertQueue(PAYMENT_DLQ, { durable: true });
+  await channel.bindQueue(PAYMENT_DLQ, COMMANDS_EXCHANGE, PAYMENT_DEAD_KEY);
 }

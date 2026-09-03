@@ -13,6 +13,9 @@ import {
   EXPIRE_DLQ,
   EXPIRE_QUEUE,
   EXPIRE_WAIT_QUEUE,
+  PAYMENT_DLQ,
+  PAYMENT_QUEUE,
+  paymentRetryQueue,
   retryQueue,
 } from '../src/messaging/messages';
 import { ReservationService, type SettleOutcome } from '../src/reservations/reservation.service';
@@ -50,8 +53,11 @@ export async function openInspection(
  * its own. In production the same fact is a migration note, not a helper.
  */
 export async function deleteTopology(connection: ChannelModel, tiers: number): Promise<void> {
-  const queues = [EXPIRE_WAIT_QUEUE, EXPIRE_QUEUE, EXPIRE_DLQ];
-  for (let tier = 1; tier <= tiers; tier += 1) queues.push(retryQueue(tier));
+  const queues = [EXPIRE_WAIT_QUEUE, EXPIRE_QUEUE, EXPIRE_DLQ, PAYMENT_QUEUE, PAYMENT_DLQ];
+  for (let tier = 1; tier <= tiers; tier += 1) {
+    queues.push(retryQueue(tier));
+    queues.push(paymentRetryQueue(tier));
+  }
 
   // A disposable channel per deletion. Deleting a queue that is not there can
   // close the channel, and a closed channel would take every following

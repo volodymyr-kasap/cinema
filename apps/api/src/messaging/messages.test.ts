@@ -69,12 +69,6 @@ describe('payment message vocabulary', () => {
     expect(paymentRetryKey(2)).toBe('payment.requested.retry.2');
   });
 
-  it('has no wait queue, because the first charge is not delayed', () => {
-    // Stated as a test so that adding one later is a deliberate act with a
-    // failing assertion attached, not a quiet copy of the expire topology.
-    expect(Object.keys({ PAYMENT_QUEUE, PAYMENT_DLQ })).not.toContain('PAYMENT_WAIT_QUEUE');
-  });
-
   it('carries only an id, like the expire message', () => {
     expect(
       paymentMessageSchema.parse({ paymentId: '00000000-0000-7000-8000-000000000001' }),

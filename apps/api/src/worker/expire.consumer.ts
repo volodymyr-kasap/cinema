@@ -12,6 +12,7 @@ import {
   ATTEMPT_HEADER,
   COMMANDS_EXCHANGE,
   EXPIRE_DEAD_KEY,
+  EXPIRE_LADDER,
   EXPIRE_QUEUE,
   expireMessageSchema,
 } from '../messaging/messages';
@@ -100,7 +101,11 @@ export class ExpireConsumer implements OnApplicationBootstrap, OnApplicationShut
         channel.ack(message);
       } catch (error) {
         const attempt = attemptOf(message.properties.headers);
-        const hop = nextHop(attempt, this.configService.config.rabbitmqRetryDelaysMs);
+        const hop = nextHop(
+          attempt,
+          this.configService.config.rabbitmqRetryDelaysMs,
+          EXPIRE_LADDER,
+        );
 
         this.logger.warn(
           hop.dead

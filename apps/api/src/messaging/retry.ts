@@ -1,4 +1,4 @@
-import { ATTEMPT_HEADER, EXPIRE_DEAD_KEY, retryKey } from './messages';
+import { ATTEMPT_HEADER, type Ladder } from './messages';
 
 export interface NextHop {
   /** Where to republish. */
@@ -13,14 +13,18 @@ export interface NextHop {
  * `x-attempt` is the number of failed handlings *so far*: the producer publishes
  * 0, and a handler that fails on n republishes with n + 1 into tier n + 1. With
  * three tiers the handler runs at most four times (spec §3).
+ *
+ * The ladder is a parameter rather than a default, and deliberately has no
+ * default value: two messages climb ladders now, and a call site that forgot to
+ * say which one would silently dead-letter a payment into the expiry DLQ.
  */
-export function nextHop(attempt: number, retryDelaysMs: number[]): NextHop {
+export function nextHop(attempt: number, retryDelaysMs: number[], ladder: Ladder): NextHop {
   const next = attempt + 1;
 
   if (next > retryDelaysMs.length) {
-    return { routingKey: EXPIRE_DEAD_KEY, attempt: next, dead: true };
+    return { routingKey: ladder.deadKey, attempt: next, dead: true };
   }
-  return { routingKey: retryKey(next), attempt: next, dead: false };
+  return { routingKey: ladder.retryKey(next), attempt: next, dead: false };
 }
 
 /**

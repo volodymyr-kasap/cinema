@@ -5,11 +5,15 @@ import {
   EXPIRE_DLQ,
   EXPIRE_QUEUE,
   EXPIRE_WAIT_QUEUE,
+  PAYMENT_DLQ,
+  PAYMENT_KEY,
+  PAYMENT_QUEUE,
+  paymentRetryQueue,
   retryQueue,
 } from '../src/messaging/messages';
 import { assertTopology } from '../src/messaging/topology';
 import { getTestRabbitUrl } from './harness';
-import { deleteTopology, openInspection, takeOne } from './rabbit-harness';
+import { deleteTopology, openInspection, queueDepth, takeOne } from './rabbit-harness';
 
 const options = { reservationTtlSeconds: 1, retryDelaysMs: [100, 200, 400] };
 
@@ -78,5 +82,42 @@ describe('the reservation.expire topology', () => {
     const delivered = await takeOne(channel, EXPIRE_QUEUE, 10_000);
     expect(delivered.content.toString('utf8')).toBe('{}');
     expect(delivered.properties.headers?.['x-death']).toBeDefined();
+  });
+
+  it('declares the payment queues on the same exchange', async () => {
+    await assertTopology(channel, { reservationTtlSeconds: 60, retryDelaysMs: [5_000, 30_000] });
+
+    await expect(channel.checkQueue(PAYMENT_QUEUE)).resolves.toMatchObject({
+      queue: PAYMENT_QUEUE,
+    });
+    await expect(channel.checkQueue(PAYMENT_DLQ)).resolves.toMatchObject({ queue: PAYMENT_DLQ });
+    await expect(channel.checkQueue(paymentRetryQueue(1))).resolves.toBeDefined();
+    await expect(channel.checkQueue(paymentRetryQueue(2))).resolves.toBeDefined();
+  });
+
+  it('gives the payment queue no TTL, because a charge is due immediately', async () => {
+    await assertTopology(channel, { reservationTtlSeconds: 60, retryDelaysMs: [5_000] });
+
+    // Re-declaring with the arguments we believe it has is the only way to
+    // read them back: a mismatch is PRECONDITION_FAILED. If someone gives this
+    // queue a TTL or a dead-letter exchange, this assertion is what says so.
+    const probe = await connection.createChannel();
+    probe.on('error', () => {});
+    await expect(probe.assertQueue(PAYMENT_QUEUE, { durable: true })).resolves.toBeDefined();
+    await probe.close();
+  });
+
+  it('routes a payment message to the payment queue and not the expire queue', async () => {
+    await assertTopology(channel, { reservationTtlSeconds: 60, retryDelaysMs: [5_000] });
+
+    channel.publish(COMMANDS_EXCHANGE, PAYMENT_KEY, Buffer.from('{"paymentId":"x"}'), {
+      persistent: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(await queueDepth(channel, PAYMENT_QUEUE)).toBe(1);
+    // A direct exchange with two exact keys: the shared exchange must not have
+    // turned into a fan-out by accident.
+    expect(await queueDepth(channel, EXPIRE_QUEUE)).toBe(0);
   });
 });
