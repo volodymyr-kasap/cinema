@@ -3058,7 +3058,19 @@ export class PaymentProviderClient {
       throw new ProviderUnavailableError(`status ${String(response.status)}`);
     }
 
-    const parsed = chargeResponseSchema.safeParse(await response.json());
+    // Two ways a 200 can fail to be an answer, and both must leave this method
+    // as a ProviderUnavailableError: the consumer discriminates on error type to
+    // route between the retry ladder and the DLQ, and a body we cannot read is
+    // exactly the ambiguous-outcome case that has to retry. The messages stay
+    // distinct so an operator can tell "not JSON" from "wrong shape".
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      throw new ProviderUnavailableError(`response body was not valid JSON: ${String(error)}`);
+    }
+
+    const parsed = chargeResponseSchema.safeParse(body);
     if (!parsed.success) {
       // A 200 we cannot read is not an answer. Treating it as one would mean
       // guessing whether money moved.
