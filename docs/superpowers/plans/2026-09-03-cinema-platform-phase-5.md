@@ -987,6 +987,13 @@ A separate workspace, a separate process, a real socket. The failure modes this 
   - `class IdempotencyStore` with `get(key): StoredCharge | undefined` and `set(key, value): void`
   - `buildProvider(options: ProviderOptions): FastifyInstance` where `ProviderOptions = { weights: ScenarioWeights; hangMs: number; random?: () => number }`
 
+**A note on relative imports.** This workspace writes them **without** a file
+extension (`./scenario`, not `./scenario.js`), matching `apps/api`. Under
+`moduleResolution: node10` TypeScript does not map `.js` back to `.ts`, and
+Task 7 imports this source directly from the API's Jest process, whose resolver
+would fail the same way. `packages/contracts` uses `.js` extensions because it
+is an ESM package resolved with `Bundler`; this one is not.
+
 **A note on dependencies.** `fastify` becomes a declared dependency of this new workspace. That is not a new package in the tree — it is already installed, hoisted from `@nestjs/platform-fastify` — so `npm install` adds no download and the Global Constraint holds. Declare it explicitly anyway: a workspace that imports a package it does not declare breaks the moment hoisting changes.
 
 - [ ] **Step 1: Create the workspace manifest**
@@ -1000,7 +1007,7 @@ Create `apps/payment-provider/package.json`:
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -1027,11 +1034,37 @@ Create `apps/payment-provider/tsconfig.json`:
     "outDir": "dist",
     "rootDir": "src",
     "module": "commonjs",
-    "moduleResolution": "node10"
+    "moduleResolution": "node10",
+    // TypeScript 6 deprecates node10 resolution as TS5107. apps/api carries the
+    // same suppression for the same reason: this is a CommonJS app, and node16
+    // would change how every dependency resolves.
+    "ignoreDeprecations": "6.0",
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts"]
+}
+```
+
+Create `apps/payment-provider/tsconfig.build.json` — the build must not emit
+tests into `dist`, but `typecheck` must still cover them, because vitest
+transpiles without type-checking and nothing else would catch a type error in a
+test file:
+
+```json
+{
+  "extends": "./tsconfig.json",
   "exclude": ["src/**/*.test.ts"]
 }
+```
+
+Create `apps/payment-provider/vitest.config.ts`, matching `packages/contracts`':
+
+```ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: { environment: 'node', include: ['src/**/*.test.ts'] },
+});
 ```
 
 - [ ] **Step 2: Install and confirm nothing new is downloaded**
@@ -1050,7 +1083,7 @@ Create `apps/payment-provider/src/scenario.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest';
 
-import { pickScenario, type ScenarioWeights } from './scenario.js';
+import { pickScenario, type ScenarioWeights } from './scenario';
 
 const weights: ScenarioWeights = { success: 0.85, decline: 0.1, error: 0.03, timeout: 0.02 };
 
@@ -1185,7 +1218,7 @@ import { IDEMPOTENT_REPLAY_HEADER } from '@cinema/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
-import { buildProvider } from './provider.js';
+import { buildProvider } from './provider';
 
 const weights = { success: 1, decline: 0, error: 0, timeout: 0 };
 const reference = '00000000-0000-7000-8000-000000000001';
@@ -1320,8 +1353,8 @@ import {
 } from '@cinema/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import { pickScenario, type ScenarioWeights } from './scenario.js';
-import { IdempotencyStore } from './store.js';
+import { pickScenario, type ScenarioWeights } from './scenario';
+import { IdempotencyStore } from './store';
 
 export interface ProviderOptions {
   weights: ScenarioWeights;
@@ -1401,7 +1434,7 @@ export function buildProvider(options: ProviderOptions): FastifyInstance {
 Create `apps/payment-provider/src/main.ts`:
 
 ```ts
-import { buildProvider } from './provider.js';
+import { buildProvider } from './provider';
 
 const number = (name: string, fallback: number): number => {
   const raw = process.env[name];
