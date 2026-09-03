@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 
 import type { Database } from '../src/db/drizzle.module';
 import { PaymentService } from '../src/payments/payment.service';
+import { PaymentConsumer } from '../src/worker/payment.consumer';
 import { WorkerModule } from '../src/worker/worker.module';
 
 export type PaymentRow = {
@@ -82,6 +83,7 @@ export interface PaymentWorkerHarnessOptions {
 export interface PaymentWorkerHarness {
   context: INestApplicationContext;
   payments: PaymentService;
+  consumer: PaymentConsumer;
   close(): Promise<void>;
 }
 
@@ -110,9 +112,13 @@ export async function startPaymentWorkerHarness(
   const context = await Test.createTestingModule({ imports: [WorkerModule] }).compile();
   await context.init();
 
+  const consumer = context.get(PaymentConsumer);
+  if (options.consume === false) await consumer.unsubscribe();
+
   return {
     context,
     payments: context.get(PaymentService),
+    consumer,
     close: async () => {
       await context.close();
       for (const [key, value] of restore) {

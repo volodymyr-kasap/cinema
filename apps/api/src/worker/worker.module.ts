@@ -8,6 +8,7 @@ import { MessagingModule } from '../messaging/messaging.module';
 import { PaymentModule } from '../payments/payment.module';
 import { ReservationModule } from '../reservations/reservation.module';
 import { ExpireConsumer } from './expire.consumer';
+import { PaymentConsumer } from './payment.consumer';
 
 /**
  * The worker's whole graph. No controllers and no HTTP adapter: an application
@@ -25,6 +26,6 @@ import { ExpireConsumer } from './expire.consumer';
     ReservationModule,
     PaymentModule,
   ],
-  providers: [ExpireConsumer],
+  providers: [ExpireConsumer, PaymentConsumer],
 })
 export class WorkerModule {}

@@ -161,6 +161,33 @@ describe('confirm starts a payment', () => {
     }
   });
 
+  it('answers 202 when RESERVATION_EXPIRY_MODE is lazy but PAYMENT_MODE is queue', async () => {
+    // Regression for a factory bug: the shared broker connection used to open
+    // only when RESERVATION_EXPIRY_MODE was `queue`, ignoring PAYMENT_MODE
+    // entirely. Every payment suite happens to set both modes to `queue`, so
+    // that combination -- a payment-only worker with lazy expiry -- ran
+    // nowhere and the bug shipped green. It must open the connection because
+    // EITHER mode asks for one (rabbit.module.ts).
+    const lazyExpiry = await startReservationHarness({
+      expiryMode: 'lazy',
+      paymentMode: 'queue',
+      paymentProviderUrl: 'http://127.0.0.1:1',
+      rabbitmqUrl: getTestRabbitUrl(),
+      ttlSeconds: 600,
+    });
+    try {
+      const session = randomUUID();
+      const reservation = await lazyExpiry.holdOne(lazyExpiry.seatIds[0]!, session);
+      const response = await lazyExpiry.act('POST', `/${reservation.id}/confirm`, session);
+
+      expect(response.statusCode).toBe(202);
+      expect(reservationSchema.parse(response.json()).status).toBe('PAYMENT_PENDING');
+      expect(await paymentFor(lazyExpiry.db, reservation.id)).toMatchObject({ status: 'PENDING' });
+    } finally {
+      await lazyExpiry.close();
+    }
+  });
+
   it('rolls the hold back and answers 503 when the broker will not take the message', async () => {
     // A closed port, so the publish confirmation never arrives.
     const dead = await startReservationHarness({

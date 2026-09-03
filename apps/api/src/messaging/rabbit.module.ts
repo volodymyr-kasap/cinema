@@ -99,12 +99,22 @@ export async function createRabbitConnection(
       provide: RABBIT,
       inject: [ConfigService],
       useFactory: async (configService: ConfigService): Promise<RabbitConnection> => {
-        const { reservationExpiryMode, rabbitmqUrl, reservationTtlSeconds, rabbitmqRetryDelaysMs } =
-          configService.config;
-        // Mode `lazy` opens no connection at all, declares no queue and logs
-        // nothing. A client nobody uses would still reconnect and still log,
-        // and would make phase 3's baseline run differ from phase 3 (ADR 0017).
-        if (reservationExpiryMode !== 'queue' || !rabbitmqUrl) return null;
+        const {
+          reservationExpiryMode,
+          paymentMode,
+          rabbitmqUrl,
+          reservationTtlSeconds,
+          rabbitmqRetryDelaysMs,
+        } = configService.config;
+        // Opens for EITHER subsystem: the expiry consumer and the payment
+        // consumer/publisher all inject this one connection and each checks its
+        // own mode before using it (see ExpireConsumer, PaymentConsumer,
+        // PaymentPublisher). Both `lazy`/`off` together open no connection at
+        // all, declare no queue and log nothing. A client nobody uses would
+        // still reconnect and still log, and would make phase 3's baseline run
+        // differ from phase 3 (ADR 0017).
+        if ((reservationExpiryMode !== 'queue' && paymentMode !== 'queue') || !rabbitmqUrl)
+          return null;
 
         const logger = new Logger(RabbitModule.name);
         try {

@@ -42,6 +42,7 @@ export class ExpireConsumer implements OnApplicationBootstrap, OnApplicationShut
 
   async onApplicationBootstrap(): Promise<void> {
     if (!this.connection) return;
+    if (this.configService.config.reservationExpiryMode !== 'queue') return;
     // A channel dies with its connection, so the subscription is re-established
     // on every successful reconnection, not held for the life of the process.
     this.connection.on('connect', () => void this.subscribe());
