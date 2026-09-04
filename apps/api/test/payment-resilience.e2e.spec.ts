@@ -283,10 +283,12 @@ describe('payment under failure', () => {
     // The API never touches the provider: it publishes and answers. A dead
     // downstream must not appear in a user's latency. 500ms is tight enough to
     // catch a regression that wrongly awaited even the ladder's first hop
-    // synchronously (retryDelaysMs[0] alone is 200ms, and a wrongly-blocking
-    // confirm handler that awaited the whole ladder would total roughly
-    // 1500ms with this file's retryDelaysMs and timeoutMs) while leaving
-    // headroom over the real cost of one hold, one confirm and a publish.
+    // synchronously (retryDelaysMs[0] alone is 200ms), and a confirm that
+    // blocked on the whole ladder would cost the two delays plus three failed
+    // calls -- roughly 650ms, since nothing listens on 127.0.0.1:1 and the
+    // connection is refused in milliseconds rather than running out the 300ms
+    // timeout. The headroom over the real cost of one hold, one confirm and a
+    // publish is wide: that path measures ~45ms here.
     expect(Date.now() - started).toBeLessThan(500);
     expect(await reservationStatus(api.db, reservationId)).toBe('PAYMENT_PENDING');
 
