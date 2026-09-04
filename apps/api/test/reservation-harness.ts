@@ -50,6 +50,11 @@ export interface HarnessOptions {
   paymentMode?: 'off' | 'queue';
   /** Overrides PAYMENT_PROVIDER_URL. */
   paymentProviderUrl?: string;
+  /**
+   * Shortens the window a payment has to come back, and with it the TTL
+   * `confirm` puts on a paying reservation's seat keys.
+   */
+  paymentDeadlineSeconds?: number;
 }
 
 export interface ReservationHarness {
@@ -125,6 +130,10 @@ export async function startReservationHarness(
     RABBITMQ_RETRY_DELAYS_MS: options.retryDelaysMs?.join(','),
     PAYMENT_MODE: options.paymentMode,
     PAYMENT_PROVIDER_URL: options.paymentProviderUrl,
+    PAYMENT_DEADLINE_SECONDS:
+      options.paymentDeadlineSeconds === undefined
+        ? undefined
+        : String(options.paymentDeadlineSeconds),
   };
   const restore = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(overrides)) {

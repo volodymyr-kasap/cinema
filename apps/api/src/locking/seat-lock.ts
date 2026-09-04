@@ -17,6 +17,21 @@ export interface SeatLock {
   release(showtimeId: string, seatIds: string[], reservationId: string): Promise<void>;
   /** Extend our locks to the end of the seats' occupancy -- a confirmed booking. */
   retain(showtimeId: string, seatIds: string[], reservationId: string, until: Date): Promise<void>;
+  /**
+   * Reset our locks to a fixed window measured from now.
+   *
+   * Separate from `retain` because the two answer different questions. `retain`
+   * asks "how long are these seats occupied", and the answer is a moment in the
+   * calendar. This asks "how long may this reservation go on owning them
+   * unresolved", and the answer is a duration with no moment attached -- the
+   * payment deadline, which starts when the charge does.
+   */
+  retainFor(
+    showtimeId: string,
+    seatIds: string[],
+    reservationId: string,
+    seconds: number,
+  ): Promise<void>;
 }
 
 /**

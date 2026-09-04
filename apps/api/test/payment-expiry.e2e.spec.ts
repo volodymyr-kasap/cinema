@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { Client } from 'pg';
 
+import { seatKey } from '../src/locking/seat-lock';
 import { ReservationService } from '../src/reservations/reservation.service';
 import { getTestDatabaseUrl, getTestProviderUrl, getTestRabbitUrl } from './harness';
 import { activeSeatCount, agePayment, paymentFor, reservationStatus } from './payment-harness';
@@ -36,6 +37,21 @@ describe('expiry while a payment is in flight', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     throw new Error('no backend ever blocked on the reservation row');
+  };
+
+  /**
+   * Abandons a payment: past its deadline, and nothing will ever settle it.
+   *
+   * Both clocks move, because real time moves both. `confirm` sets the seat
+   * key's TTL from PAYMENT_DEADLINE_SECONDS, so a payment that has outlived its
+   * deadline has outlived its keys as well. Ageing only the row leaves the pair
+   * in a state the clock never produces -- a row the reaper reads as abandoned
+   * behind an advisory key that still answers 409, and `create` consults that
+   * key before it opens the transaction the reaper runs in.
+   */
+  const abandon = async (paymentId: string, seats: string[]): Promise<void> => {
+    await agePayment(api.db, paymentId, 400);
+    await api.redis!.del(...seats.map((seat) => seatKey(api.showtimeId, seat)));
   };
 
   const confirmWith = async (seat: string): Promise<string> => {
@@ -122,7 +138,7 @@ describe('expiry while a payment is in flight', () => {
     // The message reached the DLQ, or the worker died holding it. Nothing will
     // ever settle this row, and PAYMENT_DEADLINE_SECONDS is how long we wait
     // before saying so.
-    await agePayment(api.db, payment!.id, 400);
+    await abandon(payment!.id, [api.seatIds[3]!]);
     await new Promise((resolve) => setTimeout(resolve, 1_200));
 
     const response = await api.hold([api.seatIds[3]!], randomUUID());
@@ -138,7 +154,14 @@ describe('expiry while a payment is in flight', () => {
   it('leaves the seats of a payment that succeeded mid-sweep alone', async () => {
     const reservationId = await confirmWith(api.seatIds[6]!);
     const payment = await paymentFor(api.db, reservationId);
-    await agePayment(api.db, payment!.id, 400);
+    await abandon(payment!.id, [api.seatIds[6]!]);
+
+    // A second seat with a hold that really does expire, asked for alongside
+    // the first below -- the sweep only looks at the seats the caller wants.
+    // Without it `changed` is empty, the early return fires, and the test
+    // passes even when the release is gated on the pre-select snapshot,
+    // proving the guard rather than the gate.
+    const stale = await api.holdOne(api.seatIds[7]!);
     await new Promise((resolve) => setTimeout(resolve, 1_200));
 
     // The ladder's last attempt landing late. settlePayment has no deadline
@@ -161,7 +184,7 @@ describe('expiry while a payment is in flight', () => {
       // `.then`, not when it is constructed. Without this the request would sit
       // unsent until the assertion at the bottom awaited it -- long after the
       // window it is supposed to land in.
-      contender = Promise.resolve(api.hold([api.seatIds[6]!], randomUUID()));
+      contender = Promise.resolve(api.hold([api.seatIds[6]!, api.seatIds[7]!], randomUUID()));
       await waitForBlockedWriter(late);
 
       await late.query(
@@ -189,12 +212,18 @@ describe('expiry while a payment is in flight', () => {
     // and the same seats immediately re-sellable.
     expect(await activeSeatCount(api.db, reservationId)).toBe(1);
     expect(await paymentFor(api.db, reservationId)).toMatchObject({ status: 'SUCCEEDED' });
+    // The sweep runs inside create's transaction, so losing on the index takes
+    // its work back with it: seat 7's hold is stale but survives this attempt,
+    // and the next caller reaps it. What matters here is that the sweep had
+    // real work to do -- `changed` was not empty and the early return did not
+    // fire -- so the 409 above is the `.where` gate and nothing else.
+    expect(await reservationStatus(api.db, stale.id)).toBe('PENDING');
   });
 
   it('reaps stale holds and abandoned payments in the same sweep', async () => {
     const abandoned = await confirmWith(api.seatIds[4]!);
     const payment = await paymentFor(api.db, abandoned);
-    await agePayment(api.db, payment!.id, 400);
+    await abandon(payment!.id, [api.seatIds[4]!]);
 
     const stale = await api.holdOne(api.seatIds[5]!);
     await new Promise((resolve) => setTimeout(resolve, 1_200));

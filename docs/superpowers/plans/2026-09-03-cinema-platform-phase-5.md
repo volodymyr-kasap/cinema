@@ -4788,6 +4788,106 @@ it — and keeps lazy release authoritative for both ways a hold can end."
 
 ---
 
+## Task 11a: The seat key stops when the hold's clock stops
+
+> **Ruling 12.** Task 11 moved a paying reservation's row onto
+> `PAYMENT_DEADLINE_SECONDS` but left its Redis keys exactly as the hold had set
+> them. The two then expire at different times, and in the worst direction:
+> `create` acquires the lock *before* it opens the transaction `releaseStaleHolds`
+> runs in, so the stale key refuses the very request that would have triggered
+> the reap. With the shipped defaults the database calls a reservation
+> PAYMENT_FAILED at five minutes and Redis holds the seat for five more.
+>
+> `settlePayment` is already right on both paths — it retains to `startsAt` on
+> success and releases on failure — so the gap is confined to `confirm`.
+
+**Files:**
+
+- Modify: `apps/api/src/locking/seat-lock.ts`
+- Modify: `apps/api/src/locking/redis-seat-lock.ts`
+- Modify: `apps/api/src/locking/noop-seat-lock.ts`
+- Modify: `apps/api/src/reservations/reservation.service.ts`
+- Modify: `apps/api/test/reservation-harness.ts`
+- Modify: `apps/api/test/redis-seat-lock.e2e.spec.ts`
+- Modify: `apps/api/test/payment-expiry.e2e.spec.ts`
+- Create: `apps/api/test/payment-hold-ttl.e2e.spec.ts`
+
+- [ ] **Step 1: `retainFor` on the port**
+
+`retain` answers "how long are these seats occupied" and takes a calendar
+moment. The deadline is a duration, not a moment, so it gets its own method
+rather than a `new Date(Date.now() + …)` at every call site:
+
+```ts
+retainFor(showtimeId: string, seatIds: string[], reservationId: string, seconds: number): Promise<void>;
+```
+
+`RedisSeatLock.retain` becomes a wrapper that converts its `until` to seconds
+and delegates; `retainFor` keeps the `seatIds.length === 0 || seconds <= 0`
+guard and the `retainSeats` Lua call. SET, not EXPIRE: this may **shorten** the
+window as well as lengthen it. `NoopSeatLock.retainFor` resolves.
+
+- [ ] **Step 2: `confirm` uses it**
+
+```ts
+if (outcome.paying) {
+  await this.seatLock.retainFor(
+    outcome.reservation.showtimeId, seatIds, id,
+    this.configService.config.paymentDeadlineSeconds,
+  );
+} else {
+  await this.seatLock.retain(outcome.reservation.showtimeId, seatIds, id, outcome.startsAt!);
+}
+```
+
+- [ ] **Step 3: `paymentDeadlineSeconds` on the reservation harness**
+
+A `paymentDeadlineSeconds?: number` option wired into `PAYMENT_DEADLINE_SECONDS`,
+so a suite can set a long hold and a one-second deadline and make the gap the
+whole subject rather than a detail two long timers hide.
+
+- [ ] **Step 4: Adapter tests** — three in `redis-seat-lock.e2e.spec.ts`:
+`retainFor` shortens the key to a window from now; it refuses another
+reservation's key; it leaves the key alone when the window is not positive.
+
+- [ ] **Step 5: `payment-hold-ttl.e2e.spec.ts`** — `ttlSeconds: 600`,
+`paymentDeadlineSeconds: 1`, three tests: the key expires with the payment and
+not with the hold (read the TTL, so a failure names the cause); the seat sells
+again as soon as the deadline passes; the key goes back to the end of the
+showtime once `settlePayment` succeeds.
+
+Expected without Step 2: TTL 600 rather than ≤ 1, and a 409 for a seat the
+database has already marked PAYMENT_FAILED.
+
+- [ ] **Step 6: `agePayment` is no longer enough on its own**
+
+`payment-expiry.e2e.spec.ts` fakes the deadline by backdating `payments.created_at`.
+That worked while `confirm` left the key on the hold's one-second TTL. Now the
+key tracks the deadline, so moving only the row produces a state the clock never
+produces — a row the reaper reads as abandoned behind a key that still answers
+409. An `abandon` helper moves both, and the three tests that age a payment use
+it.
+
+Same file, the mid-sweep race test: its contender must ask for a second seat
+whose hold has genuinely expired. `releaseStaleHolds` looks only at the seats
+the caller wants, and without that seat `changed` is empty, the
+`changed.length === 0` early return fires, and the test passes even with the
+release gated on the pre-select snapshot — proving the guard rather than the
+gate. The stale row stays `PENDING`: the sweep runs inside `create`'s
+transaction, and losing on the index takes its work back too.
+
+- [ ] **Step 7: Run everything**
+
+```bash
+npm test && npm run lint && npm run typecheck
+```
+
+Expected: all green — 42 suites, 295 tests.
+
+- [ ] **Step 8: Commit**
+
+---
+
 ## Task 12: The stack
 
 **Files:**

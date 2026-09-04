@@ -402,15 +402,30 @@ export class ReservationService {
       throw new ReservationExpiredError(id);
     }
 
-    // Only a finished sale retains its keys. A payment in flight leaves them
-    // exactly as the hold left them: still owned, still expiring with the hold.
-    if (!outcome.paying) {
-      await this.seatLock.retain(
+    const seatIds = outcome.reservation.seats.map((seat) => seat.seatId);
+
+    if (outcome.paying) {
+      // The hold's clock stopped at confirm; the key's must stop with it. The
+      // row now expires on PAYMENT_DEADLINE_SECONDS from the payment's
+      // created_at, and leaving the key on the hold's TTL puts the two out of
+      // step in the worst direction: releaseStaleHolds runs inside create(),
+      // *after* acquire, so the stale key refuses the very request that would
+      // have triggered the reap. With the shipped defaults (ttl 600, deadline
+      // 300) the database calls the reservation PAYMENT_FAILED at five minutes
+      // and Redis goes on holding a provably free seat for five more.
+      //
+      // Set from now rather than from created_at: this runs after the commit,
+      // so it trails the row by milliseconds, and trailing is the safe side --
+      // the key outlives the database's deadline instead of lapsing before it.
+      await this.seatLock.retainFor(
         outcome.reservation.showtimeId,
-        outcome.reservation.seats.map((seat) => seat.seatId),
+        seatIds,
         id,
-        outcome.startsAt!,
+        this.configService.config.paymentDeadlineSeconds,
       );
+    } else {
+      // A finished sale: the seats are occupied until the film ends.
+      await this.seatLock.retain(outcome.reservation.showtimeId, seatIds, id, outcome.startsAt!);
     }
 
     return { reservation: outcome.reservation, paying: outcome.paying };

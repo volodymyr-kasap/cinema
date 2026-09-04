@@ -143,6 +143,41 @@ describe('RedisSeatLock', () => {
     expect(await redis.ttl(seatKey(showtime, seat))).toBeLessThanOrEqual(600);
   });
 
+  // `retainFor` is the deadline-shaped sibling of `retain`: a window, not a
+  // moment. It is the only caller that ever makes a key's life SHORTER.
+  it('shortens a lock to a window measured from now', async () => {
+    const owner = randomUUID();
+    const seat = randomUUID();
+    await lock.acquire(showtime, [seat], owner);
+
+    await lock.retainFor(showtime, [seat], owner, 5);
+
+    const ttl = await redis.ttl(seatKey(showtime, seat));
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(5);
+  });
+
+  it('refuses to retain another reservation lock for a window', async () => {
+    const owner = randomUUID();
+    const seat = randomUUID();
+    await lock.acquire(showtime, [seat], owner);
+
+    await lock.retainFor(showtime, [seat], randomUUID(), 5);
+
+    // Untouched, so still on the hold's TTL rather than the stranger's window.
+    expect(await redis.ttl(seatKey(showtime, seat))).toBeGreaterThan(5);
+  });
+
+  it('leaves a lock alone when the window is not positive', async () => {
+    const owner = randomUUID();
+    const seat = randomUUID();
+    await lock.acquire(showtime, [seat], owner);
+
+    await lock.retainFor(showtime, [seat], owner, 0);
+
+    expect(await redis.ttl(seatKey(showtime, seat))).toBeGreaterThan(5);
+  });
+
   // The showtime has begun; holds are refused past that point anyway, so there
   // is nothing left for the key to defend.
   it('does not extend a lock past a moment that has already passed', async () => {

@@ -25,4 +25,8 @@ export class NoopSeatLock implements SeatLock {
   retain(): Promise<void> {
     return Promise.resolve();
   }
+
+  retainFor(): Promise<void> {
+    return Promise.resolve();
+  }
 }

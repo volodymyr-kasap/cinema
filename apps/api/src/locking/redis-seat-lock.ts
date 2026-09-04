@@ -97,14 +97,31 @@ export class RedisSeatLock implements SeatLock {
     reservationId: string,
     until: Date,
   ): Promise<void> {
-    if (seatIds.length === 0) return;
-    const seconds = Math.ceil((until.getTime() - Date.now()) / 1_000);
     // The moment has passed: holds are refused after a showtime starts, so the
     // key has nothing left to defend and may lapse on its own schedule.
-    if (seconds <= 0) return;
+    // `retainFor` drops a non-positive window for the same reason.
+    return this.retainFor(
+      showtimeId,
+      seatIds,
+      reservationId,
+      Math.ceil((until.getTime() - Date.now()) / 1_000),
+    );
+  }
+
+  async retainFor(
+    showtimeId: string,
+    seatIds: string[],
+    reservationId: string,
+    seconds: number,
+  ): Promise<void> {
+    if (seatIds.length === 0 || seconds <= 0) return;
 
     const keys = seatIds.map((seatId) => seatKey(showtimeId, seatId));
     try {
+      // SET, not EXPIRE: this may SHORTEN the window as well as lengthen it. A
+      // hold that becomes a payment stops expiring on the hold's clock and
+      // starts expiring on the payment's, and with the shipped defaults the
+      // payment's is the shorter of the two.
       await this.redis.retainSeats(keys.length, ...keys, reservationId, seconds);
     } catch (error) {
       this.failOpen('retain', error);
