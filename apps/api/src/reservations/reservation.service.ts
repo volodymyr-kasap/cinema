@@ -7,7 +7,7 @@ import type {
   Reservation,
   ReservationSeat,
 } from '@cinema/contracts';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import { CatalogService } from '../catalog/catalog.service';
 import { SeatGeometryCache } from '../catalog/seat-geometry.cache';
@@ -53,7 +53,7 @@ interface ReleasedSeat {
 }
 
 /** What a delivered reservation.expire message turned out to mean. */
-export type SettleOutcome = 'expired' | 'not-found' | 'terminal' | 'not-due';
+export type SettleOutcome = 'expired' | 'not-found' | 'terminal' | 'not-due' | 'awaiting-payment';
 
 /** What claiming an attempt at a payment turned out to mean. */
 export type PaymentClaim =
@@ -466,6 +466,10 @@ export class ReservationService {
           .for('update');
 
         if (!row) return { result: 'not-found', released: [] };
+        // The payment owns this row now (ADR 0036). Not 'terminal', because it
+        // is not over -- naming it separately is what makes the log line and
+        // the test say which of the two things happened.
+        if (row.status === 'PAYMENT_PENDING') return { result: 'awaiting-payment', released: [] };
         if (row.status !== 'PENDING') return { result: 'terminal', released: [] };
         if (!row.due) return { result: 'not-due', released: [] };
 
@@ -774,37 +778,75 @@ export class ReservationService {
   }
 
   /**
-   * Lazy expiry, scoped to the seats this request wants. Sweeping the whole
-   * showtime would make every hold on a busy screening write to the same rows --
-   * a contention point invented for no reason.
+   * Lazy release, and still the authoritative one (ADR 0030). Two things can
+   * leave a seat held by a reservation that is over:
+   *
+   *   a PENDING hold past its expires_at            -> EXPIRED
+   *   a PAYMENT_PENDING row whose payment never
+   *   came back within PAYMENT_DEADLINE_SECONDS     -> PAYMENT_FAILED
+   *
+   * The second arm closes the only unbounded case in the payment path: the
+   * message reached the DLQ, or the worker died holding it. Without it a seat
+   * could be owned for ever by a charge nobody is making.
    */
   private async releaseStaleHolds(
     executor: Executor,
     showtimeId: string,
     seatIds: string[],
   ): Promise<ReleasedSeat[]> {
+    const deadline = this.configService.config.paymentDeadlineSeconds;
+
     const stale = await executor
-      .selectDistinct({ id: reservations.id })
+      .selectDistinct({ id: reservations.id, status: reservations.status })
       .from(reservations)
       .innerJoin(reservationSeats, eq(reservationSeats.reservationId, reservations.id))
+      .leftJoin(payments, eq(payments.reservationId, reservations.id))
       .where(
         and(
           eq(reservationSeats.showtimeId, showtimeId),
           inArray(reservationSeats.seatId, seatIds),
           isNull(reservationSeats.releasedAt),
-          eq(reservations.status, 'PENDING'),
-          sql`${reservations.expiresAt} <= now()`,
+          or(
+            and(eq(reservations.status, 'PENDING'), sql`${reservations.expiresAt} <= now()`),
+            and(
+              eq(reservations.status, 'PAYMENT_PENDING'),
+              sql`${payments.createdAt} <= now() - make_interval(secs => ${deadline})`,
+            ),
+          ),
         ),
       );
 
     if (stale.length === 0) return [];
-    const ids = stale.map((row) => row.id);
 
-    await executor
-      .update(reservations)
-      .set({ status: 'EXPIRED', updatedAt: sql`now()` })
-      .where(and(inArray(reservations.id, ids), eq(reservations.status, 'PENDING')));
+    const expiredIds = stale.filter((row) => row.status === 'PENDING').map((row) => row.id);
+    const abandonedIds = stale
+      .filter((row) => row.status === 'PAYMENT_PENDING')
+      .map((row) => row.id);
 
+    if (expiredIds.length > 0) {
+      await executor
+        .update(reservations)
+        .set({ status: 'EXPIRED', updatedAt: sql`now()` })
+        .where(and(inArray(reservations.id, expiredIds), eq(reservations.status, 'PENDING')));
+    }
+
+    if (abandonedIds.length > 0) {
+      await executor
+        .update(reservations)
+        .set({ status: 'PAYMENT_FAILED', cancelledAt: sql`now()`, updatedAt: sql`now()` })
+        .where(
+          and(inArray(reservations.id, abandonedIds), eq(reservations.status, 'PAYMENT_PENDING')),
+        );
+
+      // A PENDING payment against a PAYMENT_FAILED reservation would be a lie
+      // in the ledger, and the row is the only place a refund would ever start.
+      await executor
+        .update(payments)
+        .set({ status: 'FAILED', settledAt: sql`now()` })
+        .where(and(inArray(payments.reservationId, abandonedIds), eq(payments.status, 'PENDING')));
+    }
+
+    const ids = [...expiredIds, ...abandonedIds];
     return executor
       .update(reservationSeats)
       .set({ releasedAt: sql`now()` })
