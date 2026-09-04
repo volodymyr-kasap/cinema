@@ -4009,7 +4009,15 @@ export class PaymentConsumer implements OnApplicationBootstrap, OnApplicationShu
       }
 
       try {
-        const outcome = await this.payments.settle(paymentId);
+        // settleWithGrace, not settle: `payment.requested` is published INSIDE
+        // the producing transaction (Task 6), so this consumer can dequeue and
+        // look the row up before that transaction commits. claimPayment then
+        // reports `not-found`, which is indistinguishable from a genuine
+        // rollback — and acking on it strands the hold this ordering exists to
+        // protect. The grace window absorbs a fast commit; anything slower
+        // throws and climbs the ladder, by which time the transaction has
+        // certainly committed or rolled back.
+        const outcome = await this.settleWithGrace(paymentId);
         this.logger.log(`payment.requested ${paymentId}: ${outcome}`);
         channel.ack(message);
       } catch (error) {
@@ -5091,7 +5099,7 @@ Each follows the existing format — `# N. Title`, `**Status:** accepted (2026-0
 | `0034-no-bookings-table.md` | The reservation is the booking; only `payments` is added. Against: `bookings` as spec.md's entity list names it — it would restate the session, seats, prices and total, need its own anti-double-booking rule, and split one lifecycle across two tables without adding an invariant. Supersedes nothing; it *completes* ADR 0013, which deferred exactly this question to this sub-project. |
 | `0035-structural-idempotence-and-the-provider-key.md` | No key store; the row lock plus `payments.reservation_id UNIQUE` make five confirms one payment, and `Idempotency-Key: payments.id` is sent where the operation is not addressable. Against: an `Idempotency-Key` header at the API edge — a second identifier for an operation the path already names uniquely, plus a new "same key, different reservation" failure mode. |
 | `0036-the-holds-clock-stops.md` | `PAYMENT_PENDING` transfers ownership of the seats; `expires_at` is never rewritten. Against: extending the hold (requires replacing `reservation.expire.wait`, ADR 0024) and against letting expiry win (needs a `/void` compensation path and a new failure mode when the void itself fails). |
-| `0037-publish-before-commit.md` | `payment.requested` publishes inside the transaction and throws. Against: ADR 0029's after-the-commit fail-open, which is right for expiry because lazy release is a full backstop and wrong here because nothing is. State the cost — a bounded broker round trip under one row lock — and name it as the outbox seam. |
+| `0037-publish-before-commit.md` | `payment.requested` publishes inside the transaction and throws. Against: ADR 0029's after-the-commit fail-open, which is right for expiry because lazy release is a full backstop and wrong here because nothing is. State the cost — a bounded broker round trip under one row lock — and name it as the outbox seam. **It must also record the race this ordering creates and how it is closed:** the consumer can read the row before the producer commits, see `not-found`, and — if it acked on that — strand the very hold this ordering protects. Measured at ~2ms locally. Closed by a short grace re-read plus, on expiry, climbing the retry ladder rather than acking; a genuine rollback therefore ends in the DLQ, which is accepted because a post-publish rollback is close to unreachable and a visible DLQ entry beats an invisible dropped message. An ADR that presents publish-before-commit without this is selling the decision. |
 | `0038-breaker-per-process-and-declines-are-not-failures.md` | One breaker per worker, state in memory, only throws counted. Against: shared state in Redis (puts Redis on the payment path; "what if the breaker state is unreadable" has no good answer) and against a general breaker over Redis and the broker (they have fallback paths; the provider does not). |
 | `0039-payment-failed-is-terminal.md` | A declined card costs the hold; retry means a new reservation. Against: a `PAYMENT_FAILED → PENDING` retry edge, which makes the graph cyclic and needs a second attempt bound on top of the ladder. Record the UX cost honestly. |
 | `0040-fake-provider-as-a-separate-service.md` | A separate workspace, image and compose service. Against: an in-process fake (a `setTimeout` in your own process is not a timeout, and a breaker that never saw a hung socket is not demonstrated) and against a route on the API (stopping it to prove the breaker would stop the API). |
