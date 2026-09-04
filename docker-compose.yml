@@ -51,6 +51,33 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
+  # A separate service and a separate image, not a route on the API: proving
+  # the breaker opens means stopping this container, and that must not take the
+  # API down with it. No published port — its only client is the worker, and
+  # nothing outside the network has any business charging cards.
+  payment-provider:
+    build:
+      context: .
+      dockerfile: apps/payment-provider/Dockerfile
+    environment:
+      PORT: '4000'
+      PROVIDER_SUCCESS_RATE: ${PROVIDER_SUCCESS_RATE:-0.85}
+      PROVIDER_DECLINE_RATE: ${PROVIDER_DECLINE_RATE:-0.1}
+      PROVIDER_ERROR_RATE: ${PROVIDER_ERROR_RATE:-0.03}
+      PROVIDER_TIMEOUT_RATE: ${PROVIDER_TIMEOUT_RATE:-0.02}
+      PROVIDER_HANG_MS: ${PROVIDER_HANG_MS:-30000}
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # Migrations run as their own step, not from the app bootstrap: with more than
   # one API replica, parallel bootstraps would race each other over DDL.
   migrate:
@@ -97,6 +124,8 @@ services:
       # whole stack is then one environment variable rather than an edit.
       RESERVATION_EXPIRY_MODE: ${RESERVATION_EXPIRY_MODE:-lazy}
       RABBITMQ_URL: amqp://cinema:cinema@rabbitmq:5672
+      PAYMENT_MODE: ${PAYMENT_MODE:-off}
+      PAYMENT_PROVIDER_URL: http://payment-provider:4000
     # No published port: Compose will not map a fixed host port onto a scaled
     # service. Reach the API through nginx at http://localhost:8080/api/, or use
     # docker-compose.single-api.yml for the one-instance shape.
@@ -135,12 +164,22 @@ services:
       RESERVATION_EXPIRY_MODE: ${RESERVATION_EXPIRY_MODE:-lazy}
       RABBITMQ_URL: amqp://cinema:cinema@rabbitmq:5672
       RABBITMQ_PREFETCH: ${RABBITMQ_PREFETCH:-20}
+      PAYMENT_MODE: ${PAYMENT_MODE:-off}
+      PAYMENT_PROVIDER_URL: http://payment-provider:4000
+      PAYMENT_TIMEOUT_MS: ${PAYMENT_TIMEOUT_MS:-2000}
+      PAYMENT_DEADLINE_SECONDS: ${PAYMENT_DEADLINE_SECONDS:-300}
+      PAYMENT_BREAKER_FAILURE_THRESHOLD: ${PAYMENT_BREAKER_FAILURE_THRESHOLD:-5}
+      PAYMENT_BREAKER_OPEN_MS: ${PAYMENT_BREAKER_OPEN_MS:-30000}
     deploy:
       replicas: ${WORKER_REPLICAS:-2}
     depends_on:
       seed:
         condition: service_completed_successfully
       rabbitmq:
+        condition: service_healthy
+      # The API takes no such dependency: it never calls the provider, and an
+      # outage there has no business delaying API startup.
+      payment-provider:
         condition: service_healthy
     # In the default `lazy` mode this process logs one line and exits 0. That is
     # success, not a crash, so the restart policy must not treat it as one --
