@@ -22,6 +22,27 @@ import { assertTopology } from '../messaging/topology';
 import { PaymentService } from '../payments/payment.service';
 import type { PaymentSettlement } from '../reservations/reservation.service';
 
+/** How many extra local attempts `settleWithGrace` makes beyond the first. */
+const PAYMENT_GRACE_ATTEMPTS = 9;
+/** Spacing between those attempts. 9 * 20ms = 180ms, well over the ~2ms race measured. */
+const PAYMENT_GRACE_DELAY_MS = 20;
+
+/**
+ * Thrown by `settleWithGrace` when the grace window runs out and the payment
+ * row is still not visible. Its own type (and its own message) rather than a
+ * generic Error, so the tier-1 log line reads as "the row was not there yet"
+ * rather than as an indistinguishable provider failure.
+ */
+class PaymentRowNotVisibleError extends Error {
+  constructor(paymentId: string, graceMs: number) {
+    super(
+      `payment ${paymentId} row not visible after ${String(graceMs)}ms of grace; ` +
+        'retrying via the ladder rather than assuming the transaction rolled back',
+    );
+    this.name = 'PaymentRowNotVisibleError';
+  }
+}
+
 /**
  * The expiry consumer's twin, on its own channel with its own prefetch, in the
  * same process (ADR 0028). Waiting on the provider is asynchronous, so one
@@ -156,18 +177,47 @@ export class PaymentConsumer implements OnApplicationBootstrap, OnApplicationShu
    * alone. Measured directly (not assumed): claimPayment reporting `not-found`
    * about 2ms before the producing transaction committed, on a co-located
    * broker and database, i.e. close to the deployment topology this worker
-   * actually runs in (ADR 0028). A short, bounded local wait buys the commit
-   * time to land without going anywhere near the retry ladder — the message
-   * still resolves in one handled tick either way, and a payment whose
-   * transaction genuinely rolled back still resolves `not-found` once the
-   * budget is spent. The real fix is a transactional outbox, which is exactly
-   * the seam PaymentPublisher's own comment already names for later.
+   * actually runs in (ADR 0028).
+   *
+   * A short local wait buys the common case (a fast commit) its answer
+   * without ever touching the ladder. But under real load a commit can
+   * legitimately take longer than any local budget this consumer could
+   * justify holding a channel open for -- and a booking system that silently
+   * drops a payment because the database was briefly busy is worse than one
+   * that retries it. So once the grace window is spent, "not-found" is no
+   * longer treated as the answer: it is thrown, and the caller's normal
+   * failure handling climbs the ladder exactly as it would for a provider
+   * error. Three outcomes result, all correct:
+   *
+   *   - race, fast commit  -> resolved inside the grace window, no ladder.
+   *   - race, slow commit  -> one hop to tier 1, ~5s later the row is surely
+   *                           there, and it settles normally.
+   *   - genuine rollback   -> the row is never going to appear, so every hop
+   *                           on the ladder repeats "not-found" until it
+   *                           dead-letters. That trades a stranded hold for a
+   *                           DLQ entry a human can see, which is the
+   *                           opposite of silent. It is also the rare side of
+   *                           this trade: publishPayment is the last
+   *                           statement before Task 6's transaction returns,
+   *                           so a rollback arriving after it (rather than a
+   *                           timeout or a broker error before it, both
+   *                           already handled elsewhere) is close to
+   *                           unreachable in practice.
+   *
+   * The real fix is a transactional outbox, which is exactly the seam
+   * PaymentPublisher's own comment already names for later.
    */
   private async settleWithGrace(paymentId: string): Promise<PaymentSettlement> {
     for (let attempt = 0; ; attempt += 1) {
       const outcome = await this.payments.settle(paymentId);
-      if (outcome !== 'not-found' || attempt >= 9) return outcome;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (outcome !== 'not-found') return outcome;
+      if (attempt >= PAYMENT_GRACE_ATTEMPTS) {
+        throw new PaymentRowNotVisibleError(
+          paymentId,
+          PAYMENT_GRACE_ATTEMPTS * PAYMENT_GRACE_DELAY_MS,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, PAYMENT_GRACE_DELAY_MS));
     }
   }
 

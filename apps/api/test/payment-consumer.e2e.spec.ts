@@ -62,6 +62,14 @@ describe('the payment consumer', () => {
     return { reservationId: reservation.id, before };
   };
 
+  // Short, matching the ladder in every consumer suite: a queue's arguments
+  // are part of its identity, and the reservation harness and the worker
+  // harness would otherwise fight over declaring PAYMENT_QUEUE with different
+  // ones (PRECONDITION_FAILED, 406). Kept short so the "does not exist" test
+  // below, which now climbs all three tiers before dead-lettering, does not
+  // wait on production timings (the real ladder's first hop alone is 5s).
+  const retryDelaysMs = [100, 200, 400];
+
   beforeAll(async () => {
     inspection = await openInspection(getTestRabbitUrl());
     await deleteTopology(inspection.connection, 3);
@@ -73,8 +81,9 @@ describe('the payment consumer', () => {
       rabbitmqUrl: getTestRabbitUrl(),
       paymentProviderUrl: getTestProviderUrl(),
       ttlSeconds: 600,
+      retryDelaysMs,
     });
-    worker = await startPaymentWorkerHarness({ providerUrl: getTestProviderUrl() });
+    worker = await startPaymentWorkerHarness({ providerUrl: getTestProviderUrl(), retryDelaysMs });
   });
 
   afterAll(async () => {
@@ -105,17 +114,26 @@ describe('the payment consumer', () => {
     expect(await activeSeatCount(api.db, reservationId)).toBe(0);
   });
 
-  it('drops a message whose payment does not exist', async () => {
-    // The rolled-back-after-publish case. It is not an error and must not be
-    // retried: the transaction that would have created this row went away.
+  it('climbs the ladder and dead-letters a message whose payment never existed', async () => {
+    // The rolled-back-after-publish case -- except settleWithGrace can no
+    // longer tell it apart, from the row alone, from a payment whose
+    // producing transaction just hasn't committed yet (see payment.consumer.ts).
+    // So it is no longer a silent, single-tick drop: the grace window expires,
+    // the message climbs the ladder same as a provider failure, and every hop
+    // reports the same "not-found" until it dead-letters -- four handled
+    // ticks (the original delivery plus one per retry tier), not one. A
+    // stranded hold would be the worse failure; a DLQ entry is visible.
     inspection.channel.publish(
       COMMANDS_EXCHANGE,
       PAYMENT_KEY,
       Buffer.from(JSON.stringify({ paymentId: randomUUID() })),
       { persistent: true },
     );
-    await settled(1);
+    await settled(1 + retryDelaysMs.length);
+
     expect(await queueDepth(inspection.channel, PAYMENT_QUEUE)).toBe(0);
+    expect(await queueDepth(inspection.channel, 'payment.requested.dlq')).toBe(1);
+    await inspection.channel.purgeQueue('payment.requested.dlq');
   });
 
   it('absorbs a duplicate delivery without charging twice', async () => {
