@@ -4,12 +4,14 @@ Seat booking under contention, built as a study of the machinery real ticketing
 systems need: transactions, distributed locking, asynchronous workers, event
 streaming and observability.
 
-This repository is being built in sub-projects. **Phase 4 — RabbitMQ and the
-expiry worker — is what exists today:** the catalogue API and seat map from phase
-1, seat holds and the proof that one seat cannot be sold twice from phase 2, the
-advisory Redis lock and the numbers that say what each strategy costs from phase
-3, and now the expiry of a hold as a delivered message, with the retry ladder and
-dead-letter queue that make delivery survivable. See
+This repository is being built in sub-projects. **Phase 5 — payment, idempotency
+and the circuit breaker — is what exists today:** the catalogue API and seat map
+from phase 1, seat holds and the proof that one seat cannot be sold twice from
+phase 2, the advisory Redis lock and the numbers that say what each strategy
+costs from phase 3, the expiry of a hold as a delivered message with the retry
+ladder and dead-letter queue behind it from phase 4, and now a payment that
+travels as a message, is charged through a real HTTP provider behind a circuit
+breaker, and cannot be charged twice however the response is lost. See
 [`docs/superpowers/specs/`](docs/superpowers/specs/) for the design of each
 phase and [`docs/adr/`](docs/adr/) for why each decision was made.
 
@@ -50,11 +52,12 @@ npm run dev:web    # http://localhost:5173, proxying /api
 
 ## Layout
 
-| Path                 | What it is                                                                                                                                         |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/contracts` | Zod schemas shared by both sides. The API validates with them, the SPA parses responses with them, and the OpenAPI document is generated from them |
-| `apps/api`           | NestJS on the Fastify adapter, Drizzle over PostgreSQL 18                                                                                          |
-| `apps/web`           | Vite + React + Tailwind, TanStack Query for server state, URL for UI state                                                                         |
+| Path                    | What it is                                                                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts`    | Zod schemas shared by both sides. The API validates with them, the SPA parses responses with them, and the OpenAPI document is generated from them |
+| `apps/api`              | NestJS on the Fastify adapter, Drizzle over PostgreSQL 18                                                                                          |
+| `apps/web`              | Vite + React + Tailwind, TanStack Query for server state, URL for UI state                                                                         |
+| `apps/payment-provider` | A fake payment provider: Fastify, no database, four scenarios. Its own service so that stopping it proves the breaker                              |
 
 ## Testing
 
@@ -123,20 +126,52 @@ proved would be a worker that had quietly become load-bearing.
 Stop the broker and holds still expire. That is the design, not a consolation:
 lazy expiry never stopped being authoritative (ADR 0030).
 
-## What phase 4 deliberately does not have
+## Payment
 
-Still no authentication, no payments, no Kafka, no metrics. Each arrives in its
-own sub-project together with the problem it solves — the specification's first
-principle is that no technology enters without one. There is no outbox, no
-`Idempotency-Key`, no circuit breaker and no rate limiting either; phase 4 leaves
-the seams where they go, rather than the machinery.
+`PAYMENT_MODE=off` by default: confirm answers `200 CONFIRMED` exactly as it did
+in phase 2, and no payment row is written. With `PAYMENT_MODE=queue` (and
+`RESERVATION_EXPIRY_MODE=queue`):
 
-Phase 4 admits exactly one new runtime dependency, `amqplib`, and it had to earn
-it the same way `ioredis` did in phase 3. Lazy expiry is correct and stays
-authoritative (ADR 0030), but it makes "this hold has expired" a thing that
-happens to nobody in particular — it is observed by the next caller who wants the
-seat, if one ever comes. Sub-project 5 needs that to be an event, with a time and
-a subscriber, and this is the phase that makes it one.
+```bash
+RESERVATION_EXPIRY_MODE=queue PAYMENT_MODE=queue docker compose up --build
+```
+
+confirm answers `202` with `PAYMENT_PENDING`, the worker charges the provider on
+phase 4's retry ladder, and the reservation settles to `CONFIRMED` or
+`PAYMENT_FAILED`. `X-Payment-Scenario: success|decline|error|timeout` on the
+confirm request picks the provider's behaviour; without it the `PROVIDER_*_RATE`
+weights roll one.
+
+Nothing charges twice, and no idempotency key is stored to arrange it: the row
+lock plus `payments.reservation_id UNIQUE` make five concurrent confirms one
+payment, and `Idempotency-Key: payments.id` — stable across every rung of the
+ladder — makes a lost response one charge at the provider (ADR 0035).
+
+Stop the provider and the API keeps answering `202`; after five consecutive
+failures the worker's breaker opens, and the seats come back through
+`PAYMENT_FAILED` when the deadline passes.
+
+```bash
+docker compose stop payment-provider
+docker compose logs worker | grep -iE "unavailable|circuit"
+```
+
+## What phase 5 deliberately does not have
+
+Still no authentication, no Kafka, no metrics and no rate limiting. Each arrives
+in its own sub-project together with the problem it solves — the specification's
+first principle is that no technology enters without one.
+
+There is no outbox either, and its absence is deliberate rather than overlooked:
+`payment.requested` publishes inside the transaction and throws, which buys back
+the lost-message problem at the price of a broker round trip under a row lock
+(ADR 0037). That price is worth paying for one message per transaction and stops
+being worth paying for two, which is exactly where the outbox goes.
+
+Compensation is not written. There is one scenario where money moves and no
+booking exists — a charge that succeeds after its reservation has been reaped —
+and closing it needs a `/void` path on the provider and a refund state on the
+payment. It is named here rather than hidden.
 
 ## Notable details
 
@@ -164,6 +199,14 @@ a subscriber, and this is the phase that makes it one.
   `setInterval` and no sweeper anywhere in the API: the wait queue's TTL is the
   clock, and the worker only ever acts on a message addressed to it. A sweeper
   scans for work that may not exist; this receives work that already does.
+- **The hold's clock stops when payment starts, and `expires_at` is never
+  rewritten.** A `reservation.expire` delivered during `PAYMENT_PENDING` takes
+  nothing; the payment's own deadline reaps it instead. Extending the hold would
+  mean a per-message delay, and the wait queue's fixed TTL is what lets phase 4
+  avoid the delayed-message plugin (ADR 0036).
+- **A declined card is not a provider failure.** The breaker counts only thrown
+  errors, so a run of refused cards never stops the system from charging good
+  ones — and the breaker never has to know what a card is (ADR 0038).
 - **Overlapping showtimes are impossible by construction** — a GiST exclusion
   constraint over `tstzrange`, not an application check.
 - **Every failure is an RFC 9457 problem document** carrying the request's

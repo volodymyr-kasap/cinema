@@ -128,7 +128,13 @@ export async function startReservationHarness(
     RESERVATION_EXPIRY_MODE: options.expiryMode,
     RABBITMQ_URL: options.rabbitmqUrl,
     RABBITMQ_RETRY_DELAYS_MS: options.retryDelaysMs?.join(','),
-    PAYMENT_MODE: options.paymentMode,
+    // Pinned rather than inherited. Every other override is harmless when the
+    // ambient environment sets it, because publishing a message nothing
+    // consumes changes no answer. PAYMENT_MODE does change one -- confirm goes
+    // from 200 CONFIRMED to 202 PAYMENT_PENDING -- so a suite that means the
+    // phase 2 lifecycle has to say so, or `PAYMENT_MODE=queue npm test` fails
+    // six tests for a behaviour that is working exactly as designed.
+    PAYMENT_MODE: options.paymentMode ?? 'off',
     PAYMENT_PROVIDER_URL: options.paymentProviderUrl,
     PAYMENT_DEADLINE_SECONDS:
       options.paymentDeadlineSeconds === undefined
