@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { IDEMPOTENCY_KEY_HEADER, IDEMPOTENT_REPLAY_HEADER } from '@cinema/contracts';
 import { sql } from 'drizzle-orm';
 
 import { PAYMENT_DLQ, PAYMENT_QUEUE } from '../src/messaging/messages';
@@ -73,6 +74,20 @@ describe('payment under failure', () => {
       headers: { 'x-session-id': session, 'x-payment-scenario': scenario },
     });
     return { reservationId: reservation.id, before };
+  };
+
+  /**
+   * The provider's own count of distinct idempotency keys it has stored an
+   * answer under (`GET /health` -> `{ charges: store.size }`). Unlike
+   * `providerRef`'s `ch_`-prefix, which a brand-new successful charge also
+   * satisfies, this number only moves when the provider genuinely records a
+   * new charge -- a replay hits `store.get` and returns without touching
+   * `store.set` again.
+   */
+  const providerCharges = async (): Promise<number> => {
+    const response = await fetch(`${getTestProviderUrl()}/health`);
+    const body = (await response.json()) as { charges: number };
+    return body.charges;
   };
 
   beforeAll(async () => {
@@ -169,6 +184,12 @@ describe('payment under failure', () => {
       timeoutMs: 300,
     });
 
+    // Taken before anything happens: the fake provider is one long-lived
+    // process shared by the whole suite (global-setup.ts), so `charges` is a
+    // running total across every file. Only the delta this test causes is
+    // meaningful.
+    const chargesBefore = await providerCharges();
+
     const { reservationId, before } = await confirmWith(api.seatIds[2]!, 'timeout');
     await settled(1, before);
     expect(await reservationStatus(api.db, reservationId)).toBe('PAYMENT_PENDING');
@@ -181,9 +202,32 @@ describe('payment under failure', () => {
     const settledPayment = await paymentFor(api.db, reservationId);
     expect(await reservationStatus(api.db, reservationId)).toBe('CONFIRMED');
     expect(settledPayment).toMatchObject({ status: 'SUCCEEDED', attempts: 2 });
-    // One charge. The provider replayed rather than charged, which is only
-    // true because the key is payments.id and did not change between attempts.
-    expect(settledPayment!.providerRef).toMatch(/^ch_/);
+
+    // The assertion that actually matters. `providerRef` matching /^ch_/ is a
+    // format check, and both of the mutations this test exists to catch --
+    // regenerating the idempotency key per attempt, or the provider storing
+    // its answer after the hang instead of before -- still produce a fresh,
+    // correctly-formatted `ch_` ref on attempt 2 (`pickScenario` with no
+    // scenario header defaults to `success`). A format check cannot tell that
+    // second, wrongly-issued charge from a genuine replay. The provider's own
+    // charge count can: two attempts, one new entry in its idempotency store.
+    const chargesAfter = await providerCharges();
+    expect(chargesAfter - chargesBefore).toBe(1);
+
+    // Pins that this specific payment's charge was the one replayed, not just
+    // that some charge somewhere was: querying the provider directly under
+    // the same key (`payments.id`) it was charged with returns its stored
+    // answer flagged as a replay, and that stored answer is the exact
+    // `providerRef` the settled payment recorded -- not a new one that merely
+    // looks like it.
+    const replay = await fetch(`${getTestProviderUrl()}/charge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [IDEMPOTENCY_KEY_HEADER]: payment!.id },
+      body: JSON.stringify({}),
+    });
+    expect(replay.headers.get(IDEMPOTENT_REPLAY_HEADER)).toBe('true');
+    const replayBody = (await replay.json()) as { providerRef?: string };
+    expect(replayBody.providerRef).toBe(settledPayment!.providerRef);
   });
 
   it('opens the breaker against a dead provider and stops calling it', async () => {
@@ -237,8 +281,13 @@ describe('payment under failure', () => {
     const started = Date.now();
     const { reservationId, before } = await confirmWith(api.seatIds[6]!, 'success');
     // The API never touches the provider: it publishes and answers. A dead
-    // downstream must not appear in a user's latency.
-    expect(Date.now() - started).toBeLessThan(2_000);
+    // downstream must not appear in a user's latency. 500ms is tight enough to
+    // catch a regression that wrongly awaited even the ladder's first hop
+    // synchronously (retryDelaysMs[0] alone is 200ms, and a wrongly-blocking
+    // confirm handler that awaited the whole ladder would total roughly
+    // 1500ms with this file's retryDelaysMs and timeoutMs) while leaving
+    // headroom over the real cost of one hold, one confirm and a publish.
+    expect(Date.now() - started).toBeLessThan(500);
     expect(await reservationStatus(api.db, reservationId)).toBe('PAYMENT_PENDING');
 
     // Drains what this test published before `afterEach` tears the worker
