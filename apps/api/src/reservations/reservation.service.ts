@@ -823,34 +823,53 @@ export class ReservationService {
       .filter((row) => row.status === 'PAYMENT_PENDING')
       .map((row) => row.id);
 
+    // Everything below is gated on what the status updates RETURNED, never on
+    // the snapshot above. `stale` was read without row locks, so a commit that
+    // lands between the read and the writes is invisible to it: a late provider
+    // success takes a PAYMENT_PENDING row to CONFIRMED, and settlePayment has no
+    // deadline check that would refuse it. The status update then correctly
+    // no-ops -- and releasing the seats anyway would un-sell a booking that has
+    // already been paid for, then hand the same seats to the next caller.
+    const changed: string[] = [];
+
     if (expiredIds.length > 0) {
-      await executor
+      const expired = await executor
         .update(reservations)
         .set({ status: 'EXPIRED', updatedAt: sql`now()` })
-        .where(and(inArray(reservations.id, expiredIds), eq(reservations.status, 'PENDING')));
+        .where(and(inArray(reservations.id, expiredIds), eq(reservations.status, 'PENDING')))
+        .returning({ id: reservations.id });
+      changed.push(...expired.map((row) => row.id));
     }
 
     if (abandonedIds.length > 0) {
-      await executor
+      const failed = await executor
         .update(reservations)
         .set({ status: 'PAYMENT_FAILED', cancelledAt: sql`now()`, updatedAt: sql`now()` })
         .where(
           and(inArray(reservations.id, abandonedIds), eq(reservations.status, 'PAYMENT_PENDING')),
-        );
+        )
+        .returning({ id: reservations.id });
+      const failedIds = failed.map((row) => row.id);
+      changed.push(...failedIds);
 
-      // A PENDING payment against a PAYMENT_FAILED reservation would be a lie
-      // in the ledger, and the row is the only place a refund would ever start.
-      await executor
-        .update(payments)
-        .set({ status: 'FAILED', settledAt: sql`now()` })
-        .where(and(inArray(payments.reservationId, abandonedIds), eq(payments.status, 'PENDING')));
+      if (failedIds.length > 0) {
+        // A PENDING payment against a PAYMENT_FAILED reservation would be a lie
+        // in the ledger, and the row is the only place a refund would ever start.
+        await executor
+          .update(payments)
+          .set({ status: 'FAILED', settledAt: sql`now()` })
+          .where(and(inArray(payments.reservationId, failedIds), eq(payments.status, 'PENDING')));
+      }
     }
 
-    const ids = [...expiredIds, ...abandonedIds];
+    if (changed.length === 0) return [];
+
     return executor
       .update(reservationSeats)
       .set({ releasedAt: sql`now()` })
-      .where(and(inArray(reservationSeats.reservationId, ids), isNull(reservationSeats.releasedAt)))
+      .where(
+        and(inArray(reservationSeats.reservationId, changed), isNull(reservationSeats.releasedAt)),
+      )
       .returning({
         reservationId: reservationSeats.reservationId,
         showtimeId: reservationSeats.showtimeId,

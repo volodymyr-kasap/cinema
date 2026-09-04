@@ -4667,34 +4667,53 @@ Replace the `where` in `releaseStaleHolds` with a left join and a disjunction, a
       .filter((row) => row.status === 'PAYMENT_PENDING')
       .map((row) => row.id);
 
+    // Everything below is gated on what the status updates RETURNED, never on
+    // the snapshot above. `stale` was read without row locks, so a commit that
+    // lands between the read and the writes is invisible to it: a late provider
+    // success takes a PAYMENT_PENDING row to CONFIRMED, and settlePayment has no
+    // deadline check that would refuse it. The status update then correctly
+    // no-ops -- and releasing the seats anyway would un-sell a booking that has
+    // already been paid for, then hand the same seats to the next caller.
+    const changed: string[] = [];
+
     if (expiredIds.length > 0) {
-      await executor
+      const expired = await executor
         .update(reservations)
         .set({ status: 'EXPIRED', updatedAt: sql`now()` })
-        .where(and(inArray(reservations.id, expiredIds), eq(reservations.status, 'PENDING')));
+        .where(and(inArray(reservations.id, expiredIds), eq(reservations.status, 'PENDING')))
+        .returning({ id: reservations.id });
+      changed.push(...expired.map((row) => row.id));
     }
 
     if (abandonedIds.length > 0) {
-      await executor
+      const failed = await executor
         .update(reservations)
         .set({ status: 'PAYMENT_FAILED', cancelledAt: sql`now()`, updatedAt: sql`now()` })
         .where(
           and(inArray(reservations.id, abandonedIds), eq(reservations.status, 'PAYMENT_PENDING')),
-        );
+        )
+        .returning({ id: reservations.id });
+      const failedIds = failed.map((row) => row.id);
+      changed.push(...failedIds);
 
-      // A PENDING payment against a PAYMENT_FAILED reservation would be a lie
-      // in the ledger, and the row is the only place a refund would ever start.
-      await executor
-        .update(payments)
-        .set({ status: 'FAILED', settledAt: sql`now()` })
-        .where(and(inArray(payments.reservationId, abandonedIds), eq(payments.status, 'PENDING')));
+      if (failedIds.length > 0) {
+        // A PENDING payment against a PAYMENT_FAILED reservation would be a lie
+        // in the ledger, and the row is the only place a refund would ever start.
+        await executor
+          .update(payments)
+          .set({ status: 'FAILED', settledAt: sql`now()` })
+          .where(and(inArray(payments.reservationId, failedIds), eq(payments.status, 'PENDING')));
+      }
     }
 
-    const ids = [...expiredIds, ...abandonedIds];
+    if (changed.length === 0) return [];
+
     return executor
       .update(reservationSeats)
       .set({ releasedAt: sql`now()` })
-      .where(and(inArray(reservationSeats.reservationId, ids), isNull(reservationSeats.releasedAt)))
+      .where(
+        and(inArray(reservationSeats.reservationId, changed), isNull(reservationSeats.releasedAt)),
+      )
       .returning({
         reservationId: reservationSeats.reservationId,
         showtimeId: reservationSeats.showtimeId,
@@ -4705,13 +4724,33 @@ Replace the `where` in `releaseStaleHolds` with a left join and a disjunction, a
 
 Add `or` to the `drizzle-orm` import.
 
+> **Correction (Ruling 13).** Earlier revisions of this step gated the final
+> `reservation_seats` update on `[...expiredIds, ...abandonedIds]` -- the
+> pre-select snapshot -- rather than on what the two status updates returned.
+> `selectDistinct` takes no row locks, and `settlePayment` has no deadline
+> check, so the ladder's last attempt can confirm a reservation between the
+> read and the writes. Both status updates then correctly no-op while the seat
+> release fires anyway: the booking stays CONFIRMED, its payment SUCCEEDED, and
+> its seats are handed to the next caller. A double sale. The `.returning()`
+> form above is the fix, and it belongs on BOTH arms -- the EXPIRED arm is safe
+> today only because `confirm()` happens to check `row.expired`, which is an
+> invariant in another method rather than local reasoning.
+
 - [ ] **Step 5: Run the suite**
 
 ```bash
 cd apps/api && npx jest test/payment-expiry.e2e.spec.ts
 ```
 
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests -- the five below plus the mid-sweep-success
+regression, which holds a `SELECT ... FOR UPDATE` on the reservation from a
+second connection so the sweep's UPDATE parks on the row and re-evaluates
+against a CONFIRMED status.
+
+Test 3 ('leaves a payment that has not yet reached its deadline alone') must
+wait past `ttlSeconds` before issuing its competing hold. Without the wait the
+Redis key answers 409 on its own and the test passes whether or not the second
+arm's negative case is correct.
 
 - [ ] **Step 6: Re-run the phase 4 suites specifically**
 
