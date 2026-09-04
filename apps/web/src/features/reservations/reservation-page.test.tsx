@@ -67,6 +67,95 @@ describe('ReservationPage', () => {
     expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
   });
 
+  it('shows a processing state while the payment is running', async () => {
+    server.use(
+      http.get('/api/v1/reservations/:id', () =>
+        HttpResponse.json(
+          makeReservation({
+            status: 'PAYMENT_PENDING',
+            payment: { status: 'PENDING', amountCents: 45_000, attempts: 0 },
+          }),
+        ),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: /processing payment/i })).toBeInTheDocument();
+    // Announced, not silently swapped: the worker settles this page without
+    // the reader touching it.
+    expect(screen.getByRole('status')).toHaveTextContent(/processing payment/i);
+    // Nothing has been bought yet, so nothing may read as bought: no
+    // confirmation, and no confirm button to press a second time.
+    expect(screen.queryByText(/these seats are yours/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the failure and offers another go when the payment is refused', async () => {
+    server.use(
+      http.get('/api/v1/reservations/:id', () =>
+        HttpResponse.json(
+          makeReservation({
+            status: 'PAYMENT_FAILED',
+            payment: { status: 'DECLINED', amountCents: 45_000, attempts: 1 },
+          }),
+        ),
+      ),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByRole('heading', { name: /payment was declined/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/seats have been released/i);
+    // The seats went back to the pool, so the honest offer is a fresh
+    // selection rather than a retry that would race other buyers.
+    expect(screen.getByRole('link', { name: /choose seats/i })).toBeInTheDocument();
+  });
+
+  // The point of the polling query. A 202 is not a sale, and the page has to
+  // keep asking until the worker has an answer.
+  it('follows a running payment to its settled state', async () => {
+    let calls = 0;
+    server.use(
+      http.get('/api/v1/reservations/:id', () => {
+        calls += 1;
+        return HttpResponse.json(
+          calls === 1
+            ? makeReservation({
+                status: 'PAYMENT_PENDING',
+                payment: { status: 'PENDING', amountCents: 45_000, attempts: 0 },
+              })
+            : makeReservation({
+                status: 'CONFIRMED',
+                payment: { status: 'SUCCEEDED', amountCents: 45_000, attempts: 1 },
+              }),
+        );
+      }),
+    );
+    renderPage();
+
+    await screen.findByRole('heading', { name: /processing payment/i });
+    expect(await screen.findByRole('heading', { name: /confirmed/i })).toBeInTheDocument();
+  });
+
+  it('stops polling once the reservation has settled', async () => {
+    let calls = 0;
+    server.use(
+      http.get('/api/v1/reservations/:id', () => {
+        calls += 1;
+        return HttpResponse.json(makeReservation({ status: 'CONFIRMED' }));
+      }),
+    );
+    renderPage();
+    await screen.findByRole('heading', { name: /confirmed/i });
+
+    // A confirmed booking left open in a background tab must not keep asking a
+    // question that has been answered.
+    const settled = calls;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(calls).toBe(settled);
+  });
+
   // Expiry is the server's decision. The countdown reaching zero is a reason to
   // ask again, never a reason for the client to declare the hold dead itself.
   it('refetches when the countdown reaches zero rather than deciding locally', async () => {

@@ -41,7 +41,13 @@ test('walks from the catalogue to a seat map', async ({ page }) => {
   await expect(page.getByTestId('countdown')).toHaveText(/\d+:\d\d/);
 
   await page.getByRole('button', { name: /confirm booking/i }).click();
-  await expect(page.getByRole('heading', { name: /booking confirmed/i })).toBeVisible();
+  // In PAYMENT_MODE=queue the confirm answers 202 and the page follows the
+  // payment to its settled state; with payments off the confirmed heading is
+  // there on the first render. Either way this is the assertion that matters,
+  // and the generous timeout is what makes the same line true in both modes.
+  await expect(page.getByRole('heading', { name: /booking confirmed/i })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Back on the map, the seat now reads as sold and yours -- the occupancy join
   // reading the row the confirm just committed.

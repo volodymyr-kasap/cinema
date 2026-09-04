@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Reservation } from '@cinema/contracts';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
@@ -6,6 +7,7 @@ import { queryKeys } from '../../shared/api/query-keys';
 import { reservationsApi } from '../../shared/api/reservations';
 import { formatPrice } from '../../shared/lib/format';
 import { useCountdown } from '../../shared/lib/use-countdown';
+import { useReservation } from '../../shared/lib/use-reservation';
 import { Button } from '../../shared/ui/button';
 import { ErrorState } from '../../shared/ui/error-state';
 import { Skeleton } from '../../shared/ui/skeleton';
@@ -20,15 +22,24 @@ import { Skeleton } from '../../shared/ui/skeleton';
  */
 const NO_DEADLINE = new Date(Date.now() + 86_400_000).toISOString();
 
+/**
+ * Deliberately not "Booking confirmed" for anything but `CONFIRMED`. A payment
+ * that is still running has bought nothing, and a heading is the one thing a
+ * reader takes at its word.
+ */
+function heading(status: Reservation['status']): string {
+  if (status === 'CONFIRMED') return 'Booking confirmed';
+  if (status === 'PAYMENT_PENDING') return 'Processing payment';
+  if (status === 'PAYMENT_FAILED') return 'Payment was declined';
+  return 'Your seats are held';
+}
+
 export function ReservationPage() {
   const { reservationId = '' } = useParams();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const reservation = useQuery({
-    queryKey: queryKeys.reservations.detail(reservationId),
-    queryFn: () => reservationsApi.get(reservationId),
-  });
+  const reservation = useReservation(reservationId);
 
   const countdown = useCountdown(reservation.data?.expiresAt ?? NO_DEADLINE);
   const hasExpired = reservation.data !== undefined && countdown.hasExpired;
@@ -79,9 +90,7 @@ export function ReservationPage() {
 
   return (
     <section className="mx-auto max-w-xl">
-      <h1 className="text-2xl font-semibold">
-        {status === 'CONFIRMED' ? 'Booking confirmed' : 'Your seats are held'}
-      </h1>
+      <h1 className="text-2xl font-semibold">{heading(status)}</h1>
 
       <ul className="mt-4 space-y-1">
         {seats.map((seat) => (
@@ -118,12 +127,41 @@ export function ReservationPage() {
         </>
       )}
 
+      {/* role="status" and aria-live: the worker settles this page without the
+          reader touching it, so the change from processing to confirmed has to
+          be announced rather than silently swapped. */}
+      {status === 'PAYMENT_PENDING' && (
+        <p role="status" aria-live="polite" className="mt-6 text-lg">
+          <span
+            aria-hidden
+            className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-current border-t-transparent align-[-2px]"
+          />
+          Processing payment… this usually takes a few seconds.
+        </p>
+      )}
+
       {/* A statement, not a second heading: the h1 above already announces the
           confirmation, and a heading that repeats it just adds a duplicate
           landmark for anyone navigating by headings. */}
       {status === 'CONFIRMED' && <p className="mt-6 text-lg">These seats are yours.</p>}
 
-      {(status === 'EXPIRED' || status === 'CANCELLED' || hasExpired) && status !== 'CONFIRMED' && (
+      {status === 'PAYMENT_FAILED' && (
+        <p role="status" aria-live="polite" className="mt-6">
+          Payment was declined and your seats have been released.{' '}
+          {/* A fresh selection, not a retry: the seats are back in the pool and
+              somebody else may already have them. Offering to try again on this
+              reservation would promise something we no longer hold. */}
+          <a className="underline" href={`/showtimes/${showtimeId}`}>
+            Choose seats again
+          </a>
+        </p>
+      )}
+
+      {/* `hasExpired` alone is not enough to say so. A paying reservation keeps
+          the hold's original expires_at -- the API deliberately never rewrites
+          it -- so a payment still running at the ten-minute mark would other-
+          wise be told its seats were released while the charge is in flight. */}
+      {(status === 'EXPIRED' || status === 'CANCELLED' || (hasExpired && status === 'PENDING')) && (
         <p className="mt-6">
           {status === 'CANCELLED'
             ? 'This reservation was cancelled.'
