@@ -20,6 +20,18 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
 
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # gitleaks scans history, not just the tip commit, so the default
+          # shallow clone would hide anything committed earlier.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   test-api:
     runs-on: ubuntu-latest
     steps:

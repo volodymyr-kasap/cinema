@@ -1,1 +1,16 @@
 npx lint-staged
+
+# Homebrew's bin is not on the PATH that GUI git clients (WebStorm, Tower,
+# GitHub Desktop) hand to hooks, so a plain `command -v` would report gitleaks
+# missing on every IDE commit even when it is installed.
+PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# A missing binary warns rather than blocks: gitleaks is a native binary, so it
+# does not arrive with `npm ci` and a fresh clone would otherwise be unable to
+# commit. The gitleaks job in CI is what makes that non-blocking choice safe.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --redact --no-banner
+else
+  echo "⚠ gitleaks not found — skipping secret scan"
+  echo "  install: brew install gitleaks   (needs >= 8.19 for 'gitleaks git')"
+fi
